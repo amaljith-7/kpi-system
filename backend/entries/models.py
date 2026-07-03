@@ -66,6 +66,23 @@ class BaseEntry(models.Model):
     added_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # ── Void / write-off (TED-594) ──────────────────────────────────────
+    # A voided entry is "written off": retained for audit but excluded from
+    # every dashboard metric and report. Voiding is irreversible. No db_index
+    # on is_voided — the extra `WHERE is_voided = false` is cheap at this scale
+    # and skipping the index keeps the migration a fast, lock-free metadata add
+    # on the live Postgres DB.
+    is_voided = models.BooleanField(default=False)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='%(class)s_voided_entries',
+        null=True,
+        blank=True,
+    )
+    void_reason = models.TextField(blank=True, default='')
+
     class Meta:
         abstract = True
         ordering = ['-date', '-added_at']
@@ -90,6 +107,14 @@ class BaseEntry(models.Model):
     def can_edit(self, user):
         """Check if user can edit this entry."""
         return self.added_by == user and self.is_editable()
+
+    def can_void(self, user):
+        """Who may void this entry: the creator (any time — no 30-min window)
+        or a super-admin. HODs are blocked at the viewset level. An entry that
+        is already voided cannot be voided again."""
+        if self.is_voided:
+            return False
+        return bool(user and (user.is_staff or self.added_by_id == user.id))
 
 
 class GeneralNewEntry(BaseEntry):
@@ -1420,7 +1445,18 @@ class EntryRemark(models.Model):
     object_id = models.PositiveIntegerField()
     entry = GenericForeignKey('content_type', 'object_id')
 
+    KIND_COMMENT = 'comment'
+    KIND_VOID = 'void_reason'
+    KIND_CHOICES = [
+        (KIND_COMMENT, 'Comment'),
+        (KIND_VOID, 'Void Reason'),
+    ]
+
     text = models.TextField()
+    # TED-594: 'void_reason' remarks are created automatically when an entry is
+    # voided and shown in the panel with a "Void Reason" tag. They are immutable
+    # — the serializer forces can_edit/can_delete to False for non-comment kinds.
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_COMMENT)
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

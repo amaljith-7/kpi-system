@@ -1309,38 +1309,24 @@ export function MotorEnquiryPage({
       </Dialog>
 
       {/* ── Status transition verification modal (TED-440) ───────────── */}
+      {/* TED-593: the Class of Enquiry confirmation was removed from the
+          Won/Lost modal for Motor New + Motor Renewal — the class chosen in the
+          add-enquiry modal is authoritative. `coverage` is omitted so the modal
+          no longer renders the dropdown, and `class_of_enquiry` is left out of
+          the status PATCH entirely (passing '' would wipe the stored value),
+          preserving whatever was set at creation. */}
       {pendingStatus && (
         <EnquiryStatusModal
           entry={pendingStatus.entry}
           needsConvertedPremium={pendingStatus.newStatus !== 'lost'}
-          coverage={isFleet ? undefined : {
-            label: 'Class of Enquiry',
-            helper: 'Confirm whether the finalized enquiry is Comprehensive or TPL.',
-            initialValue: pendingStatus.entry.class_of_enquiry ?? '',
-            renderControl: (value, onChange) => (
-              <Select
-                value={value || '__none__'}
-                onValueChange={(v) => onChange(v === '__none__' ? '' : v)}
-              >
-                <SelectTrigger className="w-full shadow-none">
-                  <SelectValue placeholder="Select class" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Select enquiry</SelectItem>
-                  <SelectItem value="comprehensive">Comprehensive</SelectItem>
-                  <SelectItem value="tpl">TPL</SelectItem>
-                </SelectContent>
-              </Select>
-            ),
-          }}
           onCancel={() => setPendingStatus(null)}
-          onConfirm={({ revisions, quotes_compared, coverage, converted_premium }) =>
+          onConfirm={({ revisions, quotes_compared, converted_premium }) =>
             applyStatusChange(
               pendingStatus.entry,
               pendingStatus.newStatus,
               revisions,
               quotes_compared,
-              isFleet ? undefined : coverage,
+              undefined,
               converted_premium,
             )
           }
