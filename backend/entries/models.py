@@ -180,6 +180,15 @@ class GeneralNewEntry(BaseEntry):
         related_name='general_new_entries',
         null=True, blank=True,
     )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Converted).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='general_new_compared',
+        blank=True,
+    )
 
     class Meta(BaseEntry.Meta):
         verbose_name = 'General New Entry'
@@ -309,6 +318,15 @@ class GeneralRenewalEntry(BaseEntry):
         on_delete=models.PROTECT,
         related_name='general_renewal_entries',
         null=True, blank=True,
+    )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Retained).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='general_renewal_compared',
+        blank=True,
     )
 
     class Meta(BaseEntry.Meta):
@@ -466,6 +484,15 @@ class MotorNewEntry(BaseEntry):
         related_name='motor_new_entries',
         null=True, blank=True,
     )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Converted).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='motor_new_compared',
+        blank=True,
+    )
 
     class Meta(BaseEntry.Meta):
         verbose_name = 'Motor New Entry'
@@ -593,6 +620,15 @@ class MotorRenewalEntry(BaseEntry):
         on_delete=models.PROTECT,
         related_name='motor_renewal_entries',
         null=True, blank=True,
+    )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Retained).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='motor_renewal_compared',
+        blank=True,
     )
 
     class Meta(BaseEntry.Meta):
@@ -757,6 +793,15 @@ class MotorFleetNewEntry(BaseEntry):
         related_name='motor_fleet_new_entries',
         null=True, blank=True,
     )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Converted).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='motor_fleet_new_compared',
+        blank=True,
+    )
 
     class Meta(BaseEntry.Meta):
         verbose_name = 'Motor Fleet New Entry'
@@ -881,6 +926,15 @@ class MotorFleetRenewalEntry(BaseEntry):
         on_delete=models.PROTECT,
         related_name='motor_fleet_renewal_entries',
         null=True, blank=True,
+    )
+    # TED-592: insurers compared/quoted while the enquiry is open (the
+    # create-modal multi-select). The `insurance_company` FK above now records
+    # the single insurer the client purchased from, captured when the enquiry
+    # is Won (Retained).
+    compared_insurance_companies = models.ManyToManyField(
+        'InsuranceCompany',
+        related_name='motor_fleet_renewal_compared',
+        blank=True,
     )
 
     class Meta(BaseEntry.Meta):

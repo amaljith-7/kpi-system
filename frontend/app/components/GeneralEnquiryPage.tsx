@@ -58,6 +58,7 @@ import { Progress } from '@/components/ui/progress';
 import { DataTable } from '@/app/components/DataTable';
 import { FilterBar } from '@/app/components/FilterBar';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { MultiSelect } from '@/components/ui/multi-select';
 import {
   AddedByCell,
   PersonalDailyTracker,
@@ -85,6 +86,7 @@ import {
   getUsersForModule,
   getUsersForModulePage,
   getInsuranceCompaniesPage,
+  getInsuranceCompanies,
   getClassOfInsurancePage,
   getGeneralRenewalStats,
   updateGeneralRenewalStatus,
@@ -98,6 +100,7 @@ import {
   voidEntry,
   type GeneralRenewalMonthlyTarget,
   type GeneralRenewalEntry,
+  type InsuranceCompany,
   type GeneralRenewalStats,
 } from '@/app/lib/api';
 
@@ -488,7 +491,7 @@ export function GeneralEnquiryPage() {
     quotes_compared: number;
     potential_premium: string | null;
     class_of_insurance: number | null;
-    insurance_company: number | null;
+    compared_insurance_companies: number[];
   }) => {
     setModalError('');
     const isEdit = !!editingEntry;
@@ -578,6 +581,19 @@ export function GeneralEnquiryPage() {
     [],
   );
 
+  // TED-592: page-scoped insurer fetcher for the Won modal's "Insurance
+  // Company" dropdown (the single insurer the client purchased from).
+  const insurerFetchPage = useCallback(
+    async ({ search, page }: { search: string; page: number }) => {
+      const res = await getInsuranceCompaniesPage({ search, page });
+      return {
+        results: res.data?.results ?? [],
+        hasMore: res.data?.has_more ?? false,
+      };
+    },
+    [],
+  );
+
   const applyStatusChange = async (
     entry: GeneralRenewalEntry,
     newStatus: SuccessStatus | 'lost',
@@ -585,6 +601,7 @@ export function GeneralEnquiryPage() {
     quotesCompared?: number,
     coverage?: string,
     convertedPremium?: string,
+    wonInsurer?: string,
   ) => {
     const result = await updateGeneralRenewalStatus(entry.id, {
       status: newStatus,
@@ -593,6 +610,8 @@ export function GeneralEnquiryPage() {
       ...(coverage !== undefined
         ? { class_of_insurance: coverage ? Number(coverage) : null }
         : {}),
+      // TED-592: the insurer the client purchased from (Won modal, success only).
+      ...(wonInsurer ? { insurance_company: Number(wonInsurer) } : {}),
       ...(convertedPremium ? { converted_premium: convertedPremium } : {}),
     });
     if (result.data) {
@@ -682,8 +701,13 @@ export function GeneralEnquiryPage() {
     {
       key: 'insurance_company',
       header: 'Insurance Company',
+      // TED-592: show the purchased insurer once Won; before that, the insurers
+      // compared while the enquiry was open.
       render: (item: GeneralRenewalEntry) =>
-        (item.insurance_company_name as string | undefined) || '—',
+        item.insurance_company_name ||
+        (item.compared_insurance_companies_names?.length
+          ? item.compared_insurance_companies_names.join(', ')
+          : '—'),
     },
     {
       key: 'revisions',
@@ -1196,8 +1220,35 @@ export function GeneralEnquiryPage() {
                 />
               ),
             }}
+            insurer={
+              pendingStatus.newStatus !== 'lost'
+                ? {
+                    label: 'Insurance Company',
+                    helper:
+                      'Select the insurer the client purchased the policy from.',
+                    initialValue:
+                      typeof pendingStatus.entry.insurance_company === 'number'
+                        ? String(pendingStatus.entry.insurance_company)
+                        : '',
+                    renderControl: (value, onChange) => (
+                      <SearchableSelect
+                        value={value || null}
+                        onValueChange={(v) => onChange(v ?? '')}
+                        placeholder="Select insurance company"
+                        emptyLabel="No insurance companies found"
+                        clearLabel="None"
+                        selectedLabel={pendingStatus.entry.insurance_company_name ?? null}
+                        getOptionValue={(c) => String(c.id)}
+                        getOptionLabel={(c) => c.name}
+                        fetchPage={insurerFetchPage}
+                      />
+                    ),
+                  }
+                : undefined
+            }
+            insurerRequired={pendingStatus.newStatus !== 'lost'}
             onCancel={() => setPendingStatus(null)}
-            onConfirm={({ revisions, quotes_compared, coverage, converted_premium }) =>
+            onConfirm={({ revisions, quotes_compared, coverage, insurance_company, converted_premium }) =>
               applyStatusChange(
                 pendingStatus.entry,
                 pendingStatus.newStatus,
@@ -1205,6 +1256,7 @@ export function GeneralEnquiryPage() {
                 quotes_compared,
                 coverage,
                 converted_premium,
+                insurance_company,
               )
             }
           />
@@ -1512,7 +1564,7 @@ function EnquiryForm({
     quotes_compared: number;
     potential_premium: string | null;
     class_of_insurance: number | null;
-    insurance_company: number | null;
+    compared_insurance_companies: number[];
   }) => void;
   onClose: () => void;
   error: string;
@@ -1529,9 +1581,11 @@ function EnquiryForm({
   const [classOfInsuranceId, setClassOfInsuranceId] = useState<number | null>(
     typeof entry?.class_of_insurance === 'number' ? entry.class_of_insurance : null,
   );
-  const [insurerId, setInsurerId] = useState<number | null>(
-    typeof entry?.insurance_company === 'number' ? entry.insurance_company : null
+  // TED-592: multi-select of the insurers being compared/quoted on this enquiry.
+  const [insurerIds, setInsurerIds] = useState<number[]>(
+    entry?.compared_insurance_companies ?? []
   );
+  const [insurerOptions, setInsurerOptions] = useState<InsuranceCompany[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   // TED-484: Ctrl+Enter / Cmd+Enter submits via the form's onSubmit handler.
   const formRef = useRef<HTMLFormElement>(null);
@@ -1548,16 +1602,13 @@ function EnquiryForm({
     []
   );
 
-  const insurerFetchPage = useCallback(
-    async ({ search, page }: { search: string; page: number }) => {
-      const res = await getInsuranceCompaniesPage({ search, page });
-      return {
-        results: res.data?.results ?? [],
-        hasMore: res.data?.has_more ?? false,
-      };
-    },
-    []
-  );
+  // TED-592: the create modal now picks multiple insurers being compared.
+  // MultiSelect is in-memory, so load the full active list once on mount.
+  useEffect(() => {
+    getInsuranceCompanies({ is_active: true }).then((res) => {
+      if (res.data) setInsurerOptions(res.data);
+    });
+  }, []);
 
   const classOfInsuranceFetchPage = useCallback(
     async ({ search, page }: { search: string; page: number }) => {
@@ -1579,7 +1630,7 @@ function EnquiryForm({
     setClassOfInsuranceId(
       typeof entry?.class_of_insurance === 'number' ? entry.class_of_insurance : null,
     );
-    setInsurerId(typeof entry?.insurance_company === 'number' ? entry.insurance_company : null);
+    setInsurerIds(entry?.compared_insurance_companies ?? []);
   }, [entry]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -1593,7 +1644,7 @@ function EnquiryForm({
       quotes_compared: Math.max(0, Number(quotesCompared || 0)),
       potential_premium: potentialPremium.trim() === '' ? null : potentialPremium.trim(),
       class_of_insurance: classOfInsuranceId,
-      insurance_company: insurerId,
+      compared_insurance_companies: insurerIds,
     });
     setIsSubmitting(false);
   };
@@ -1661,16 +1712,16 @@ function EnquiryForm({
 
       <div className="space-y-2">
         <Label>Insurance Company</Label>
-        <SearchableSelect
-          value={insurerId ? String(insurerId) : null}
-          onValueChange={(v) => setInsurerId(v ? Number(v) : null)}
-          placeholder="Select insurance company"
-          emptyLabel="No insurance companies found"
-          clearLabel="None"
-          selectedLabel={entry?.insurance_company_name ?? null}
+        <MultiSelect
+          options={insurerOptions}
+          value={insurerIds.map(String)}
+          onChange={(vals) => setInsurerIds(vals.map(Number))}
           getOptionValue={(c) => String(c.id)}
           getOptionLabel={(c) => c.name}
-          fetchPage={insurerFetchPage}
+          placeholder="Select insurance company"
+          searchPlaceholder="Search insurers…"
+          emptyLabel="No insurance companies found"
+          summarize={(n) => `${n} insurers selected`}
         />
       </div>
 
