@@ -72,7 +72,9 @@ import { useTrackerCounts } from '@/app/lib/useTrackerCounts';
 import { useConfirm } from '@/app/components/ConfirmDialog';
 import { RemarksPanel } from '@/app/components/RemarksPanel';
 import { EnquiryStatusModal } from '@/app/components/EnquiryStatusModal';
-import { canModifyEntry } from '@/app/lib/permissions';
+import { canModifyEntry, canVoidEntry } from '@/app/lib/permissions';
+import { VoidEntryDialog } from '@/app/components/VoidEntryDialog';
+import { VoidStatusBadge } from '@/app/components/VoidStatusBadge';
 import { formatDate, businessToday } from '@/app/lib/date';
 import { formatPremium, formatNumber } from '@/app/lib/number';
 import { formatTatFromMinutes } from '@/app/lib/tat';
@@ -93,6 +95,7 @@ import {
   updateGeneralRenewalMonthlyTarget,
   getRemarksContentTypes,
   REMARKS_MODEL_NAME_BY_API_SLUG,
+  voidEntry,
   type GeneralRenewalMonthlyTarget,
   type GeneralRenewalEntry,
   type GeneralRenewalStats,
@@ -220,6 +223,9 @@ export function GeneralEnquiryPage() {
 
   // Remarks side panel
   const [panelEntry, setPanelEntry] = useState<GeneralRenewalEntry | null>(null);
+  // TED-594: void (write-off) confirmation target + in-flight flag.
+  const [voidTarget, setVoidTarget] = useState<GeneralRenewalEntry | null>(null);
+  const [isVoiding, setIsVoiding] = useState(false);
   const [ctMap, setCtMap] = useState<Record<string, number>>({});
   useEffect(() => {
     getRemarksContentTypes().then((res) => {
@@ -609,7 +615,9 @@ export function GeneralEnquiryPage() {
       key: 'status',
       header: 'Status',
       render: (item: GeneralRenewalEntry) =>
-        item.is_terminal || item.allowed_transitions.length === 0 || !canModifyEntry(user, item.added_by) ? (
+        item.is_voided ? (
+          <VoidStatusBadge reason={item.void_reason} voidedByName={item.voided_by_name} />
+        ) : item.is_terminal || item.allowed_transitions.length === 0 || !canModifyEntry(user, item.added_by) ? (
           <StatusBadge status={item.status} label={statusLabelFor(item.status)} />
         ) : (
           <Select
@@ -890,6 +898,11 @@ export function GeneralEnquiryPage() {
                 total={stats.total_potential_premium ?? 0}
                 success={stats.converted_premium ?? 0}
               />
+              <StatCard
+                label="Voided"
+                value={formatNumber(stats.voided ?? 0)}
+                accent="text-gray-600"
+              />
             </div>
           </TabsContent>
 
@@ -1092,10 +1105,21 @@ export function GeneralEnquiryPage() {
                     setIsModalOpen(true);
                   }}
                   onDelete={handleDelete}
-                  canEdit={(entry) => entry.status === 'new' && entry.is_editable && canModifyEntry(user, entry.added_by)}
+                  canEdit={(entry) => !entry.is_voided && entry.status === 'new' && entry.is_editable && canModifyEntry(user, entry.added_by)}
                   canDelete={(entry) =>
-                    entry.added_by === currentUserId && entry.status === 'new'
+                    !entry.is_voided && entry.added_by === currentUserId && entry.status === 'new'
                   }
+                  rowActions={(entry) => {
+                    const actions: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
+                    if (canVoidEntry(user, entry.added_by, entry.is_voided)) {
+                      actions.push({
+                        label: 'Void',
+                        danger: true,
+                        onClick: () => setVoidTarget(entry),
+                      });
+                    }
+                    return actions;
+                  }}
                   isLoading={isLoading}
                 />
               </div>
@@ -1206,6 +1230,30 @@ export function GeneralEnquiryPage() {
             fetchCurrentTarget();
             fetchTargetCard();
             fetchSheetTargets();
+          }}
+        />
+
+        {/* ── Void (write-off) confirmation (TED-594) ──────────────────────── */}
+        <VoidEntryDialog
+          open={!!voidTarget}
+          onOpenChange={(open) => {
+            if (!open) setVoidTarget(null);
+          }}
+          isSubmitting={isVoiding}
+          noun="enquiry"
+          entryLabel={voidTarget?.pib_id}
+          onConfirm={async (reason) => {
+            if (!voidTarget) return;
+            setIsVoiding(true);
+            const res = await voidEntry(API_SLUG, voidTarget.id, reason);
+            setIsVoiding(false);
+            if (res.error) {
+              toast.error(res.error);
+              return;
+            }
+            toast.success('Entry voided');
+            setVoidTarget(null);
+            refreshAfterMutation();
           }}
         />
       </div>
