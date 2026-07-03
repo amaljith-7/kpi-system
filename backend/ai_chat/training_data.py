@@ -390,6 +390,13 @@ def get_documentation():
         "All entry tables have an added_by_id foreign key to auth_app_customuser. "
         "To find who entered data, JOIN with auth_app_customuser ON added_by_id = auth_app_customuser.id.",
 
+        "Every entry table has an is_voided BOOLEAN column (default FALSE). A voided "
+        "entry has been written off — retained only for audit and NOT counted in any "
+        "business metric. Unless the user explicitly asks about voided / written-off "
+        "entries, ALWAYS exclude them: add 'WHERE is_voided = false' (or 'AND NOT is_voided') "
+        "to every count, sum, and average over an entry table. The columns voided_by_id, "
+        "voided_at, and void_reason record who voided it, when, and why.",
+
         "Per-entry comments live in entries_entryremark (one row per remark, many remarks per entry). "
         "It uses a generic FK: content_type_id + object_id together identify the parent entry. "
         "To find remarks on a specific module, JOIN django_content_type ON content_type_id = django_content_type.id "

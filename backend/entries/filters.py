@@ -11,6 +11,10 @@ class EntryFilter(django_filters.FilterSet):
     created_from = django_filters.DateFilter(field_name='added_at', lookup_expr='date__gte')
     created_to = django_filters.DateFilter(field_name='added_at', lookup_expr='date__lte')
     user_id = django_filters.NumberFilter(field_name='added_by_id')
+    # TED-594: optionally include/exclude voided entries (e.g. ?is_voided=false
+    # to hide them). Declared filters are always active regardless of each
+    # subclass's Meta.fields, so this is available on every entry list endpoint.
+    is_voided = django_filters.BooleanFilter(field_name='is_voided')
 
     class Meta:
         fields = ['date_from', 'date_to', 'created_from', 'created_to', 'user_id']

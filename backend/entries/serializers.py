@@ -67,6 +67,25 @@ class BaseEntrySerializer(serializers.ModelSerializer):
         ct = ContentType.objects.get_for_model(obj.__class__)
         return EntryRemark.objects.filter(content_type=ct, object_id=obj.pk).count()
 
+    def get_voided_by_name(self, obj):
+        if obj.voided_by_id is None:
+            return None
+        return obj.voided_by.get_full_name()
+
+    def get_fields(self):
+        # TED-594: inject the void fields as READ-ONLY into every entry
+        # serializer here rather than repeating them in each subclass's
+        # Meta.fields. Keeps all ~11 modules consistent (and new modules get
+        # them for free). Read-only is essential — the only way to set them is
+        # the viewset's `void` action, which enforces permission + a reason.
+        fields = super().get_fields()
+        fields['is_voided'] = serializers.BooleanField(read_only=True)
+        fields['voided_at'] = serializers.DateTimeField(read_only=True)
+        fields['void_reason'] = serializers.CharField(read_only=True)
+        fields['voided_by'] = serializers.PrimaryKeyRelatedField(read_only=True)
+        fields['voided_by_name'] = serializers.SerializerMethodField()
+        return fields
+
     def validate_accuracy(self, value):
         if value < 0 or value > 100:
             raise serializers.ValidationError("Accuracy must be between 0 and 100")
@@ -1053,19 +1072,24 @@ class EntryRemarkSerializer(serializers.ModelSerializer):
     class Meta:
         model = EntryRemark
         fields = [
-            'id', 'content_type', 'object_id', 'text',
+            'id', 'content_type', 'object_id', 'text', 'kind',
             'author', 'author_name', 'can_edit', 'can_delete',
             'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'author', 'author_name', 'can_edit', 'can_delete',
+            'id', 'kind', 'author', 'author_name', 'can_edit', 'can_delete',
             'created_at', 'updated_at',
         ]
 
     def get_can_edit(self, obj):
+        # TED-594: void-reason remarks are system-generated and immutable.
+        if obj.kind != EntryRemark.KIND_COMMENT:
+            return False
         request = self.context.get('request')
         return bool(request and request.user.is_authenticated and request.user.id == obj.author_id)
 
     def get_can_delete(self, obj):
+        if obj.kind != EntryRemark.KIND_COMMENT:
+            return False
         request = self.context.get('request')
         return bool(request and request.user.is_authenticated and request.user.id == obj.author_id)
