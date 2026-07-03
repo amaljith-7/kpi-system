@@ -195,6 +195,7 @@ export function GeneralEnquiryPage() {
     converted_premium: 0,
     lost_premium: 0,
     total_potential_premium: 0,
+    voided: 0,
   });
 
   // Tracker — month state + entries
