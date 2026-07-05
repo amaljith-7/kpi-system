@@ -53,6 +53,20 @@ def _full_number(value):
     return f"{float(value or 0):,.0f}"
 
 
+def _full_number_2dp(value):
+    """Thousands-separated with 2 decimals (e.g. 240341.5 -> '240,341.50').
+
+    Used for premium figures that should show the exact amount rather than be
+    rounded to a whole number (TED-582).
+    """
+    return f"{float(value or 0):,.2f}"
+
+
+def _generated_at_label(dt):
+    """'Jul 03, 2026 2:05 PM' — 12-hour, no leading zero on the hour (TED-574)."""
+    return f"{dt.strftime('%b %d, %Y')} {dt.strftime('%I:%M %p').lstrip('0')}"
+
+
 def _pct_change(curr, prior):
     """Signed % change with a divide-by-zero guard.
 
@@ -168,14 +182,15 @@ class SalesWeeklyDigestService:
             performers.append({
                 'name': name,
                 'premium': premium,
-                'premium_display': _full_number(premium),
+                'premium_display': _full_number_2dp(premium),
                 'won_count': r['won_count'],
             })
         return performers
 
     def _activity(self):
-        """Every active sales-team user with their active-day count over the
-        week, as ``N/7`` (Mon-Sun) — least active first (TED-576)."""
+        """Less-active sales-team users with their active-day count over the
+        week, as ``N/7`` (Mon-Sun) — least active first. Only users with 2 or
+        fewer active days are listed (TED-576, TED-580)."""
         team = list(
             CustomUser.objects.filter(
                 is_active=True,
@@ -204,6 +219,9 @@ class SalesWeeklyDigestService:
         result = []
         for u in team:
             days = len(active_days.get(u.id, ()))
+            # TED-580: only surface the less-active users (<= 2 active days).
+            if days > 2:
+                continue
             result.append({
                 'name': u.full_name or u.email,
                 'days': days,
@@ -251,7 +269,7 @@ class SalesWeeklyDigestService:
             },
             'top_performers': self._top_performers(),
             'activity': self._activity(),
-            'generated_at': timezone.localtime().strftime('%b %d, %Y %H:%M'),
+            'generated_at': _generated_at_label(timezone.localtime()),
         }
 
     @staticmethod
