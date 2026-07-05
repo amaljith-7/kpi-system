@@ -143,7 +143,8 @@ class SalesWeeklyDigestService:
     # -- per-week figures (bucketed by added_at) ---------------------------
     def _week_figures(self, start_date, end_date):
         lo, hi = self._bounds(start_date, end_date)
-        qs = SalesKPIEntry.objects.filter(added_at__gte=lo, added_at__lt=hi)
+        # TED-594: voided deals are written off — exclude from every digest metric.
+        qs = SalesKPIEntry.objects.filter(added_at__gte=lo, added_at__lt=hi, is_voided=False)
         counts = dict(qs.values_list('status').annotate(n=Count('id')))
         lead = counts.get(SalesKPIEntry.STATUS_LEAD, 0)
         awaiting = counts.get(SalesKPIEntry.STATUS_AWAITING_QUOTE, 0)
@@ -168,6 +169,7 @@ class SalesWeeklyDigestService:
         lo, hi = self._bounds(self.last_start, self.last_end)
         won_qs = SalesKPIEntry.objects.filter(
             added_at__gte=lo, added_at__lt=hi, status=SalesKPIEntry.STATUS_WON,
+            is_voided=False,
         )
         rows = (
             won_qs
@@ -207,6 +209,7 @@ class SalesWeeklyDigestService:
         rows = (
             SalesKPIEntry.objects.filter(
                 added_by_id__in=team_ids, added_at__gte=lo, added_at__lt=hi,
+                is_voided=False,
             )
             .annotate(day=TruncDate('added_at', tzinfo=self.tz))
             .values('added_by_id', 'day')

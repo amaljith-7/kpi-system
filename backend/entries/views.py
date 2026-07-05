@@ -339,6 +339,20 @@ class BaseEntryViewSet(viewsets.ModelViewSet):
                 'Admins and HODs can only change the status of entries they created.'
             )
 
+        # TED-594: a voided entry is frozen — reject every mutating action on it
+        # (update, destroy, update-status, update-revisions, update-converted-
+        # premium, …) in one place, since they all go through get_object(). The
+        # `void` action itself is excluded; it guards double-voiding via
+        # can_void().
+        if (
+            obj.is_voided
+            and request.method in _WRITE_METHODS
+            and self.action != 'void'
+        ):
+            raise PermissionDenied(
+                'This entry has been voided and can no longer be modified.'
+            )
+
     def perform_create(self, serializer):
         """Always create as the requesting user. Admins cannot create on behalf of others."""
         serializer.save(added_by=self.request.user)
@@ -372,6 +386,57 @@ class BaseEntryViewSet(viewsets.ModelViewSet):
             )
 
         return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='void')
+    def void(self, request, pk=None):
+        """Void (write off) an entry: retained for audit but excluded from every
+        dashboard metric and report. The creator may void their own entry at any
+        time (no 30-minute window); super-admins may void any entry. HODs are
+        blocked in check_permissions. Voiding is irreversible.
+        """
+        entry = self.get_object()
+
+        if not entry.can_void(request.user):
+            if entry.is_voided:
+                return Response(
+                    {'error': 'This entry is already voided.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                {'error': 'You do not have permission to void this entry.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        reason = (request.data.get('void_reason') or '').strip()
+        if not reason:
+            return Response(
+                {'void_reason': 'A reason is required to void an entry.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        entry.is_voided = True
+        entry.voided_at = timezone.now()
+        entry.voided_by = request.user
+        entry.void_reason = reason
+        entry.save(update_fields=[
+            'is_voided', 'voided_at', 'voided_by', 'void_reason', 'updated_at',
+        ])
+
+        # Surface the reason in the comments panel with a "Void Reason" tag, but
+        # only for modules that render the panel (ALLOWED_REMARK_MODELS). Marine
+        # and Medical Claim have no panel — there the reason is shown via the
+        # status-badge tooltip on the frontend instead.
+        if entry._meta.model_name in ALLOWED_REMARK_MODELS:
+            ct = ContentType.objects.get_for_model(entry.__class__)
+            EntryRemark.objects.create(
+                content_type=ct,
+                object_id=entry.pk,
+                text=reason,
+                author=request.user,
+                kind=EntryRemark.KIND_VOID,
+            )
+
+        return Response(self.get_serializer(entry).data)
 
 
 class GeneralNewEntryViewSet(BaseEntryViewSet):
@@ -435,6 +500,12 @@ class GeneralNewEntryViewSet(BaseEntryViewSet):
         if 'class_of_insurance' in serializer.validated_data:
             entry.class_of_insurance = serializer.validated_data['class_of_insurance']
             update_fields.append('class_of_insurance')
+
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -564,6 +635,12 @@ class GeneralRenewalEntryViewSet(BaseEntryViewSet):
             entry.class_of_insurance = serializer.validated_data['class_of_insurance']
             update_fields.append('class_of_insurance')
 
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
+
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
         if new_converted_premium is not None:
@@ -645,6 +722,12 @@ def _build_enquiry_stats(queryset, success_status='converted'):
     Reads via .values_list to avoid the FieldError caused by combining the
     viewset's select_related('agent') with .only(...) on a partial field set.
     """
+    # TED-594: voided entries are written off. Count them first (within the same
+    # RBAC/date scope) so the dashboard can show a "Voided" card, then exclude
+    # them from every downstream metric below.
+    voided = queryset.filter(is_voided=True).count()
+    queryset = queryset.filter(is_voided=False)
+
     total = queryset.count()
     in_progress = queryset.filter(status='in_progress').count()
     revised = queryset.filter(revisions__gt=0).count()
@@ -716,6 +799,7 @@ def _build_enquiry_stats(queryset, success_status='converted'):
         'converted_premium': round(converted_premium, 2),
         'lost_premium': round(lost_premium, 2),
         'total_potential_premium': round(total_potential_premium, 2),
+        'voided': voided,
     }
 
 
@@ -781,6 +865,12 @@ class MotorNewEntryViewSet(BaseEntryViewSet):
         if 'class_of_enquiry' in serializer.validated_data:
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
+
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -911,6 +1001,12 @@ class MotorRenewalEntryViewSet(BaseEntryViewSet):
         if 'class_of_enquiry' in serializer.validated_data:
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
+
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1081,6 +1177,10 @@ class MotorClaimEntryViewSet(BaseEntryViewSet):
         filterset = self.filterset_class(date_params, queryset=queryset)
         queryset = filterset.qs
 
+        # TED-594: exclude voided claims from every count; surface a voided total.
+        voided = queryset.filter(is_voided=True).count()
+        queryset = queryset.filter(is_voided=False)
+
         counts = dict(queryset.values_list('status').annotate(n=Count('id')))
         opened = counts.get('claims_opened', 0)
         in_progress = counts.get('claims_in_progress', 0)
@@ -1094,6 +1194,7 @@ class MotorClaimEntryViewSet(BaseEntryViewSet):
             'claims_in_progress': in_progress,
             'claims_resolved': resolved,
             'claims_rejected': rejected,
+            'voided': voided,
         })
 
 
@@ -1260,6 +1361,10 @@ class SalesKPIEntryViewSet(BaseEntryViewSet):
         filterset = self.filterset_class(date_params, queryset=queryset)
         queryset = filterset.qs
 
+        # TED-594: exclude voided deals from every count/premium; surface a total.
+        voided = queryset.filter(is_voided=True).count()
+        queryset = queryset.filter(is_voided=False)
+
         counts = dict(queryset.values_list('status').annotate(n=Count('id')))
         lead = counts.get('lead', 0)
         # TED-540: the dashboard shows the two non-terminal sub-stages as their
@@ -1296,6 +1401,7 @@ class SalesKPIEntryViewSet(BaseEntryViewSet):
             'new_clients_acquired': new_clients_acquired,
             'potential_premium_total': round(potential_total, 2),
             'converted_premium_total': round(converted_premium_total, 2),
+            'voided': voided,
         })
 
 
@@ -1388,6 +1494,12 @@ class MotorFleetNewEntryViewSet(BaseEntryViewSet):
         if 'class_of_enquiry' in serializer.validated_data:
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
+
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1518,6 +1630,12 @@ class MotorFleetRenewalEntryViewSet(BaseEntryViewSet):
         if 'class_of_enquiry' in serializer.validated_data:
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
+
+        # TED-592: the Won modal records the single insurer the client
+        # purchased from. The Lost modal never sends it, so Lost is unaffected.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1665,6 +1783,10 @@ class MedicalClaimEntryViewSet(BaseEntryViewSet):
         filterset = self.filterset_class(date_params, queryset=queryset)
         queryset = filterset.qs
 
+        # TED-594: exclude voided claims from every count; surface a voided total.
+        voided = queryset.filter(is_voided=True).count()
+        queryset = queryset.filter(is_voided=False)
+
         counts = dict(queryset.values_list('status').annotate(n=Count('id')))
         opened = counts.get('claims_opened', 0)
         in_progress = counts.get('claims_in_progress', 0)
@@ -1678,6 +1800,7 @@ class MedicalClaimEntryViewSet(BaseEntryViewSet):
             'claims_in_progress': in_progress,
             'claims_resolved': resolved,
             'claims_rejected': rejected,
+            'voided': voided,
         })
 
 
@@ -1778,6 +1901,11 @@ class EntryRemarkViewSet(viewsets.ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
+        if instance.kind != EntryRemark.KIND_COMMENT:
+            return Response(
+                {'error': 'System-generated remarks cannot be edited.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if instance.author_id != request.user.id:
             return Response(
                 {'error': 'Only the author can edit a comment.'},
@@ -1787,6 +1915,11 @@ class EntryRemarkViewSet(viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        if instance.kind != EntryRemark.KIND_COMMENT:
+            return Response(
+                {'error': 'System-generated remarks cannot be deleted.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if instance.author_id != request.user.id:
             return Response(
                 {'error': 'Only the author can delete a comment.'},

@@ -427,9 +427,13 @@ export interface MotorEnquiryEntry {
   // general_new uses class_of_insurance — FK to the admin-managed ClassOfInsurance lookup.
   class_of_insurance?: number | null;
   class_of_insurance_display?: string | null;
-  // Insurance Company FK to the admin-managed lookup table.
+  // Insurance Company FK to the admin-managed lookup table. TED-592: now holds
+  // the single insurer the client purchased from, captured on the Won modal.
   insurance_company?: number | null;
   insurance_company_name?: string | null;
+  // TED-592: insurers compared while the enquiry was open (create multi-select).
+  compared_insurance_companies?: number[];
+  compared_insurance_companies_names?: string[];
   added_by: number;
   added_by_name: string;
   on_behalf_of: number | null;
@@ -439,6 +443,14 @@ export interface MotorEnquiryEntry {
   is_editable: boolean;
   // Count of EntryRemark rows. Tints the Notes icon indigo when > 0.
   remark_count: number;
+  // TED-594: void / write-off. When is_voided, the row shows a "Void" status,
+  // is excluded from every dashboard metric, and is frozen (no edit/delete/
+  // status change). voided_by_name + void_reason power the badge tooltip + panel tag.
+  is_voided: boolean;
+  voided_at: string | null;
+  voided_by: number | null;
+  voided_by_name: string | null;
+  void_reason: string;
   // Index signature required for compatibility with shared BaseModuleEntry-based
   // components (PersonalDailyTracker, TrackerView).
   [key: string]: unknown;
@@ -462,6 +474,8 @@ export interface MotorEnquiryStats {
   converted_premium: number;
   lost_premium: number;
   total_potential_premium: number;
+  // TED-594: count of voided entries in the same scope (drives the Voided card).
+  voided: number;
 }
 
 export interface MotorRenewalMonthlyTarget {
@@ -523,6 +537,8 @@ export async function updateMotorEnquiryStatus(
     quotes_compared?: number;
     class_of_enquiry?: string;
     class_of_insurance?: number | null;
+    // TED-592: the insurer the client purchased from, chosen on the Won modal.
+    insurance_company?: number | null;
     converted_premium?: string | number;
   }
 ): Promise<ApiResponse<MotorEnquiryEntry>> {
@@ -646,8 +662,12 @@ export interface GeneralRenewalEntry {
   // FK to the admin-managed ClassOfInsurance lookup (TED-446 migration 0035).
   class_of_insurance?: number | null;
   class_of_insurance_display?: string | null;
+  // TED-592: the single insurer the client purchased from (set on the Won modal).
   insurance_company?: number | null;
   insurance_company_name?: string | null;
+  // TED-592: insurers compared while the enquiry was open (create multi-select).
+  compared_insurance_companies?: number[];
+  compared_insurance_companies_names?: string[];
   added_by: number;
   added_by_name: string;
   on_behalf_of: number | null;
@@ -657,6 +677,12 @@ export interface GeneralRenewalEntry {
   is_editable: boolean;
   // Count of EntryRemark rows. Tints the Notes icon indigo when > 0.
   remark_count: number;
+  // TED-594: void / write-off (see MotorEnquiryEntry for semantics).
+  is_voided: boolean;
+  voided_at: string | null;
+  voided_by: number | null;
+  voided_by_name: string | null;
+  void_reason: string;
   // Index signature for compatibility with shared tracker components.
   [key: string]: unknown;
 }
@@ -673,6 +699,8 @@ export interface GeneralRenewalStats {
   converted_premium: number;
   lost_premium: number;
   total_potential_premium: number;
+  // TED-594: count of voided entries in the same scope (drives the Voided card).
+  voided: number;
 }
 
 export interface GeneralRenewalMonthlyTarget {
@@ -705,6 +733,8 @@ export async function updateGeneralRenewalStatus(
     revisions?: number;
     quotes_compared?: number;
     class_of_insurance?: number | null;
+    // TED-592: the insurer the client purchased from, chosen on the Won modal.
+    insurance_company?: number | null;
     converted_premium?: string | number;
   }
 ): Promise<ApiResponse<GeneralRenewalEntry>> {
@@ -814,6 +844,12 @@ export interface MotorClaimEntry {
   is_terminal: boolean;
   // Count of EntryRemark rows. Tints the Notes icon indigo when > 0.
   remark_count: number;
+  // TED-594: void / write-off (see MotorEnquiryEntry for semantics).
+  is_voided: boolean;
+  voided_at: string | null;
+  voided_by: number | null;
+  voided_by_name: string | null;
+  void_reason: string;
   // Index signature for compatibility with shared BaseModuleEntry-based
   // components (PersonalDailyTracker, TrackerView).
   [key: string]: unknown;
@@ -828,6 +864,8 @@ export interface MotorClaimStats {
   claims_in_progress: number;
   claims_resolved: number;
   claims_rejected: number;
+  // TED-594: count of voided claims in the same scope (drives the Voided card).
+  voided: number;
 }
 
 // ─── Settings: lookup tables (Type of Accident + Insurance Company) ──────────
@@ -1056,6 +1094,12 @@ export interface SalesKPIEntry {
   is_editable: boolean;
   // Count of EntryRemark rows. Tints the Notes icon indigo when > 0.
   remark_count: number;
+  // TED-594: void / write-off (see MotorEnquiryEntry for semantics).
+  is_voided: boolean;
+  voided_at: string | null;
+  voided_by: number | null;
+  voided_by_name: string | null;
+  void_reason: string;
   // Index signature for compatibility with shared tracker components.
   [key: string]: unknown;
 }
@@ -1074,6 +1118,8 @@ export interface SalesKPIStats {
   new_clients_acquired: number;
   potential_premium_total: number;
   converted_premium_total: number;
+  // TED-594: count of voided deals in the same scope (drives the Voided card).
+  voided: number;
 }
 
 export async function getSalesKPIStats(params: {
@@ -1146,6 +1192,9 @@ export interface EntryRemark {
   content_type: number;
   object_id: number;
   text: string;
+  // TED-594: 'void_reason' remarks are system-generated when an entry is voided
+  // (shown with a "Void Reason" tag and immutable); normal comments are 'comment'.
+  kind: 'comment' | 'void_reason';
   author: number;
   author_name: string;
   can_edit: boolean;
@@ -1186,6 +1235,20 @@ export async function updateRemark(
 
 export async function deleteRemark(id: number): Promise<ApiResponse<void>> {
   return fetchApi<void>(`/api/entries/remarks/${id}/`, { method: 'DELETE' });
+}
+
+// TED-594: Void (write off) an entry. Generic across all modules — pass the
+// module's apiSlug (e.g. 'motor-new', 'sales-kpi', 'medical-claim'). The reason
+// is required. The entry is retained for audit but excluded from all metrics.
+export async function voidEntry<T = unknown>(
+  apiSlug: string,
+  id: number,
+  voidReason: string,
+): Promise<ApiResponse<T>> {
+  return fetchApi<T>(`/api/entries/${apiSlug}/${id}/void/`, {
+    method: 'POST',
+    body: JSON.stringify({ void_reason: voidReason }),
+  });
 }
 
 // Map of {modelname: content_type_id} for the 7 modules that support remarks.
