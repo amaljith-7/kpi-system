@@ -367,6 +367,18 @@ class BaseEntryViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        # TED-595: a rejected enquiry is a terminal, irreversible state and can
+        # no longer be edited. Rejection often happens within the 30-minute
+        # window, so the is_editable() check below would not block it. Only the
+        # six enquiry models use the bare 'rejected' value (claims use
+        # 'claims_rejected', sales use won/lost, marine has no status), so
+        # getattr makes this a no-op for every other viewset.
+        if getattr(instance, 'status', None) == 'rejected':
+            return Response(
+                {'error': 'A rejected enquiry can no longer be edited.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         if not instance.is_editable():
             return Response(
                 {'error': 'Edit window has expired (30 minutes)'},
@@ -382,6 +394,13 @@ class BaseEntryViewSet(viewsets.ModelViewSet):
         if instance.added_by != request.user:
             return Response(
                 {'error': 'You can only delete your own entries'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # TED-595: a rejected enquiry is terminal and cannot be deleted.
+        if getattr(instance, 'status', None) == 'rejected':
+            return Response(
+                {'error': 'A rejected enquiry can no longer be deleted.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -513,9 +532,9 @@ class GeneralNewEntryViewSet(BaseEntryViewSet):
             entry.converted_premium = new_converted_premium
             update_fields.append('converted_premium')
 
-        # A Lost enquiry has no converted premium — record 0 so the column
-        # reads 0 instead of blank (the modal no longer asks for it on Lost).
-        if new_status == GeneralNewEntry.STATUS_LOST:
+        # A Lost or Rejected (TED-595) enquiry has no converted premium — record
+        # 0 so the column reads 0 instead of blank (neither close asks for it).
+        if new_status in (GeneralNewEntry.STATUS_LOST, GeneralNewEntry.STATUS_REJECTED):
             entry.converted_premium = 0
             if 'converted_premium' not in update_fields:
                 update_fields.append('converted_premium')
@@ -733,6 +752,11 @@ def _build_enquiry_stats(queryset, success_status='converted'):
     revised = queryset.filter(revisions__gt=0).count()
     success_count = queryset.filter(status=success_status).count()
     lost = queryset.filter(status='lost').count()
+    # TED-595: Rejected is a separate terminal bucket — counted here for its own
+    # card but deliberately kept out of the conversion/retention ratio (the
+    # frontend subtracts it from the denominator) and out of the avg TAT/accuracy
+    # `terminal` set below, so rejections don't skew quality metrics.
+    rejected = queryset.filter(status='rejected').count()
 
     terminal = queryset.filter(
         status__in=[success_status, 'lost']
@@ -783,6 +807,7 @@ def _build_enquiry_stats(queryset, success_status='converted'):
 
     converted_premium = _sum_converted(queryset.filter(status=success_status))
     lost_premium = _sum_potential(queryset.filter(status='lost'))
+    rejected_premium = _sum_potential(queryset.filter(status='rejected'))
     total_potential_premium = _sum_potential(queryset)
 
     return {
@@ -798,7 +823,9 @@ def _build_enquiry_stats(queryset, success_status='converted'):
         # Premium / Converted-vs-Potential Premium cards.
         'converted_premium': round(converted_premium, 2),
         'lost_premium': round(lost_premium, 2),
+        'rejected_premium': round(rejected_premium, 2),
         'total_potential_premium': round(total_potential_premium, 2),
+        'rejected': rejected,
         'voided': voided,
     }
 
@@ -878,9 +905,9 @@ class MotorNewEntryViewSet(BaseEntryViewSet):
             entry.converted_premium = new_converted_premium
             update_fields.append('converted_premium')
 
-        # A Lost enquiry has no converted premium — record 0 so the column
-        # reads 0 instead of blank (the modal no longer asks for it on Lost).
-        if new_status == MotorNewEntry.STATUS_LOST:
+        # A Lost or Rejected (TED-595) enquiry has no converted premium — record
+        # 0 so the column reads 0 instead of blank (neither close asks for it).
+        if new_status in (MotorNewEntry.STATUS_LOST, MotorNewEntry.STATUS_REJECTED):
             entry.converted_premium = 0
             if 'converted_premium' not in update_fields:
                 update_fields.append('converted_premium')
@@ -1507,9 +1534,9 @@ class MotorFleetNewEntryViewSet(BaseEntryViewSet):
             entry.converted_premium = new_converted_premium
             update_fields.append('converted_premium')
 
-        # A Lost enquiry has no converted premium — record 0 so the column
-        # reads 0 instead of blank (the modal no longer asks for it on Lost).
-        if new_status == MotorFleetNewEntry.STATUS_LOST:
+        # A Lost or Rejected (TED-595) enquiry has no converted premium — record
+        # 0 so the column reads 0 instead of blank (neither close asks for it).
+        if new_status in (MotorFleetNewEntry.STATUS_LOST, MotorFleetNewEntry.STATUS_REJECTED):
             entry.converted_premium = 0
             if 'converted_premium' not in update_fields:
                 update_fields.append('converted_premium')

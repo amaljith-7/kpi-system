@@ -409,7 +409,7 @@ export interface MotorEnquiryEntry {
   chassis_no?: string;
   // Motor New uses 'converted'; Motor Renewal uses 'retained'. Both modules
   // share the same row type; the page's per-module STATUS_CONFIG narrows it.
-  status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost';
+  status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost' | 'rejected';
   revisions: number;
   quotes_compared: number;
   status_changed_at: string | null;
@@ -473,7 +473,12 @@ export interface MotorEnquiryStats {
   // applies to the module.
   converted_premium: number;
   lost_premium: number;
+  // TED-595: potential premium of rejected entries — subtracted from the
+  // premium-ratio denominator on the frontend (rejected is neither won nor lost).
+  rejected_premium: number;
   total_potential_premium: number;
+  // TED-595: count of rejected entries in the same scope (drives the Rejected card).
+  rejected: number;
   // TED-594: count of voided entries in the same scope (drives the Voided card).
   voided: number;
 }
@@ -532,7 +537,7 @@ export async function updateMotorEnquiryStatus(
   // class_of_enquiry is used by the Motor modules, class_of_insurance by
   // general-new; converted_premium is now saved on every transition incl. Lost.
   payload: {
-    status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost';
+    status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost' | 'rejected';
     revisions?: number;
     quotes_compared?: number;
     class_of_enquiry?: string;
@@ -647,7 +652,7 @@ export interface GeneralRenewalEntry {
   client_name: string;
   agent: number;                     // FK id
   agent_name: string;
-  status: 'new' | 'retained' | 'lost';
+  status: 'new' | 'retained' | 'lost' | 'rejected';
   revisions: number;
   quotes_compared: number;
   status_changed_at: string | null;
@@ -698,7 +703,12 @@ export interface GeneralRenewalStats {
   // Premium aggregates (sums of `potential_premium`).
   converted_premium: number;
   lost_premium: number;
+  // TED-595: potential premium of rejected entries — subtracted from the
+  // premium-ratio denominator on the frontend (rejected is neither won nor lost).
+  rejected_premium: number;
   total_potential_premium: number;
+  // TED-595: count of rejected entries in the same scope (drives the Rejected card).
+  rejected: number;
   // TED-594: count of voided entries in the same scope (drives the Voided card).
   voided: number;
 }
@@ -729,7 +739,7 @@ export async function updateGeneralRenewalStatus(
   id: number,
   // TED-530: the confirmation modal confirms/edits all of these while closing.
   payload: {
-    status: 'retained' | 'lost';
+    status: 'retained' | 'lost' | 'rejected';
     revisions?: number;
     quotes_compared?: number;
     class_of_insurance?: number | null;

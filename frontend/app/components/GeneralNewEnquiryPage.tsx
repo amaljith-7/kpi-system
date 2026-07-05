@@ -128,6 +128,7 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
       { value: 'in_progress', label: 'In Progress' },
       { value: 'converted', label: 'Won' },
       { value: 'lost', label: 'Lost' },
+      { value: 'rejected', label: 'Rejected' },
     ],
     successValue: 'converted',
     successLabel: 'Converted',
@@ -140,6 +141,7 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
       { value: 'in_progress', label: 'In Progress' },
       { value: 'converted', label: 'Won' },
       { value: 'lost', label: 'Lost' },
+      { value: 'rejected', label: 'Rejected' },
     ],
     successValue: 'converted',
     successLabel: 'Converted',
@@ -151,6 +153,7 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
       { value: 'new', label: 'New Enquiry' },
       { value: 'retained', label: 'Retained' },
       { value: 'lost', label: 'Lost' },
+      { value: 'rejected', label: 'Rejected' },
     ],
     successValue: 'retained',
     successLabel: 'Retained',
@@ -163,6 +166,7 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
       { value: 'in_progress', label: 'In Progress' },
       { value: 'converted', label: 'Won' },
       { value: 'lost', label: 'Lost' },
+      { value: 'rejected', label: 'Rejected' },
     ],
     successValue: 'converted',
     successLabel: 'Converted',
@@ -174,6 +178,7 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
       { value: 'new', label: 'New Enquiry' },
       { value: 'retained', label: 'Retained' },
       { value: 'lost', label: 'Lost' },
+      { value: 'rejected', label: 'Rejected' },
     ],
     successValue: 'retained',
     successLabel: 'Retained',
@@ -188,6 +193,8 @@ const STATUS_COLORS: Record<MotorEnquiryEntry['status'], string> = {
   converted: 'bg-green-100 text-green-800',
   retained: 'bg-green-100 text-green-800',
   lost: 'bg-red-100 text-red-800',
+  // TED-595: rejected — dark rose, visually distinct from Lost's red.
+  rejected: 'bg-rose-200 text-rose-900',
 };
 
 function StatusBadge({
@@ -272,7 +279,9 @@ export function GeneralNewEnquiryPage() {
     avg_accuracy: null,
     converted_premium: 0,
     lost_premium: 0,
+    rejected_premium: 0,
     total_potential_premium: 0,
+    rejected: 0,
     voided: 0,
   });
 
@@ -675,6 +684,21 @@ export function GeneralNewEnquiryPage() {
     }
   };
 
+  // TED-595: Rejected is an irreversible terminal close. Unlike Won/Lost it
+  // captures no extra fields, so it uses the simple confirm dialog (not the
+  // field-capturing EnquiryStatusModal) and posts only { status: 'rejected' }.
+  const handleReject = async (entry: MotorEnquiryEntry) => {
+    const ok = await confirm({
+      title: 'Reject this enquiry?',
+      description: 'This action cannot be reversed. Are you sure you want to proceed?',
+      confirmLabel: 'Reject',
+      cancelLabel: 'Cancel',
+      danger: true,
+    });
+    if (!ok) return;
+    applyStatusChange(entry, 'rejected');
+  };
+
   // ── Columns ──────────────────────────────────────────────────────────────
   const columns = [
     {
@@ -700,6 +724,9 @@ export function GeneralNewEnquiryPage() {
                   entry: item,
                   newStatus: v as SuccessStatus | 'lost',
                 });
+              } else if (v === 'rejected') {
+                // TED-595: irreversible decline — simple warning confirm.
+                handleReject(item);
               } else if (v === 'new' || v === 'in_progress') {
                 // New ↔ In Progress is a free, no-confirmation transition.
                 applyStatusChange(item, v);
@@ -944,7 +971,8 @@ export function GeneralNewEnquiryPage() {
             {config.showRatioCard && (
               <RatioCard
                 label={`${config.successLabel} / Total Assigned Clients`}
-                total={stats.total}
+                // TED-595: exclude rejected from the denominator (neither won nor lost).
+                total={stats.total - stats.rejected}
                 success={stats[config.successValue]}
               />
             )}
@@ -957,6 +985,7 @@ export function GeneralNewEnquiryPage() {
               accent="text-green-700"
             />
             <StatCard label="Lost" value={stats.lost} accent="text-red-700" />
+            <StatCard label="Rejected" value={stats.rejected} accent="text-rose-800" />
             <StatCard
               label="Avg. TAT"
               value={formatTatFromMinutes(stats.avg_tat_minutes)}
@@ -979,7 +1008,8 @@ export function GeneralNewEnquiryPage() {
             />
             <RatioCard
               label={`${config.successLabel} vs Potential Premium`}
-              total={stats.total_potential_premium ?? 0}
+              // TED-595: exclude rejected potential premium from the denominator.
+              total={(stats.total_potential_premium ?? 0) - (stats.rejected_premium ?? 0)}
               success={stats.converted_premium ?? 0}
               format={formatPremium}
             />

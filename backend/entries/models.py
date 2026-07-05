@@ -127,23 +127,27 @@ class GeneralNewEntry(BaseEntry):
     STATUS_IN_PROGRESS = 'in_progress'
     STATUS_CONVERTED = 'converted'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_IN_PROGRESS, 'In Progress'),
         (STATUS_CONVERTED, 'Converted'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED}
 
     # New ↔ In Progress is a free back-and-forth; both can close to
-    # Converted/Lost (terminal). Converted/Lost are dead-ends.
+    # Converted/Lost/Rejected (terminal). Rejected (TED-595) is an
+    # irreversible decline — an entry cannot leave it. All three are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST],
-        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST],
+        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
+        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
         STATUS_CONVERTED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
@@ -270,19 +274,24 @@ class GeneralRenewalEntry(BaseEntry):
     STATUS_NEW = 'new'
     STATUS_RETAINED = 'retained'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_RETAINED, 'Retained'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED}
 
+    # Rejected (TED-595) is an irreversible decline reachable from New; an
+    # entry cannot leave it. Retained/Lost/Rejected are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST],
+        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED],
         STATUS_RETAINED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
@@ -432,23 +441,27 @@ class MotorNewEntry(BaseEntry):
     STATUS_IN_PROGRESS = 'in_progress'
     STATUS_CONVERTED = 'converted'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_IN_PROGRESS, 'In Progress'),
         (STATUS_CONVERTED, 'Converted'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED}
 
     # New ↔ In Progress is a free back-and-forth; both can close to
-    # Converted/Lost (terminal). Converted/Lost are dead-ends.
+    # Converted/Lost/Rejected (terminal). Rejected (TED-595) is an
+    # irreversible decline — an entry cannot leave it. All three are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST],
-        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST],
+        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
+        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
         STATUS_CONVERTED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
@@ -573,19 +586,24 @@ class MotorRenewalEntry(BaseEntry):
     STATUS_NEW = 'new'
     STATUS_RETAINED = 'retained'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_RETAINED, 'Retained'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED}
 
+    # Rejected (TED-595) is an irreversible decline reachable from New; an
+    # entry cannot leave it. Retained/Lost/Rejected are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST],
+        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED],
         STATUS_RETAINED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
@@ -741,23 +759,27 @@ class MotorFleetNewEntry(BaseEntry):
     STATUS_IN_PROGRESS = 'in_progress'
     STATUS_CONVERTED = 'converted'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_IN_PROGRESS, 'In Progress'),
         (STATUS_CONVERTED, 'Converted'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED}
 
     # New ↔ In Progress is a free back-and-forth; both can close to
-    # Converted/Lost (terminal). Converted/Lost are dead-ends.
+    # Converted/Lost/Rejected (terminal). Rejected (TED-595) is an
+    # irreversible decline — an entry cannot leave it. All three are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST],
-        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST],
+        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
+        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_CONVERTED, STATUS_LOST, STATUS_REJECTED],
         STATUS_CONVERTED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
@@ -882,19 +904,24 @@ class MotorFleetRenewalEntry(BaseEntry):
     STATUS_NEW = 'new'
     STATUS_RETAINED = 'retained'
     STATUS_LOST = 'lost'
+    STATUS_REJECTED = 'rejected'
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
         (STATUS_RETAINED, 'Retained'),
         (STATUS_LOST, 'Lost'),
+        (STATUS_REJECTED, 'Rejected'),
     ]
 
-    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST}
+    TERMINAL_STATUSES = {STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED}
 
+    # Rejected (TED-595) is an irreversible decline reachable from New; an
+    # entry cannot leave it. Retained/Lost/Rejected are dead-ends.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST],
+        STATUS_NEW: [STATUS_RETAINED, STATUS_LOST, STATUS_REJECTED],
         STATUS_RETAINED: [],
         STATUS_LOST: [],
+        STATUS_REJECTED: [],
     }
 
     ACCURACY_DECAY = Decimal('0.9')
