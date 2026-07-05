@@ -409,7 +409,8 @@ export interface MotorEnquiryEntry {
   chassis_no?: string;
   // Motor New uses 'converted'; Motor Renewal uses 'retained'. Both modules
   // share the same row type; the page's per-module STATUS_CONFIG narrows it.
-  status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost' | 'rejected';
+  // TED-596: 'shared_with_client' is a Marine New-only working stage.
+  status: 'new' | 'in_progress' | 'shared_with_client' | 'converted' | 'retained' | 'lost' | 'rejected';
   revisions: number;
   quotes_compared: number;
   status_changed_at: string | null;
@@ -479,6 +480,9 @@ export interface MotorEnquiryStats {
   total_potential_premium: number;
   // TED-595: count of rejected entries in the same scope (drives the Rejected card).
   rejected: number;
+  // TED-596: count of enquiries at the 'shared_with_client' stage (Marine New's
+  // dashboard card). 0 for every other enquiry module.
+  shared_with_client?: number;
   // TED-594: count of voided entries in the same scope (drives the Voided card).
   voided: number;
 }
@@ -502,7 +506,8 @@ export type MotorEnquiryModule =
   | 'motor-renewal'
   | 'motor-fleet-new'
   | 'motor-fleet-renewal'
-  | 'general-new';  // general_new shares the per-enquiry shape (minus chassis_no)
+  | 'general-new'  // general_new shares the per-enquiry shape (minus chassis_no)
+  | 'marine-new';  // TED-596: marine_new rebuilt on the same per-enquiry shape
 
 // Renewal-style modules that have monthly retention targets (clients_assigned).
 export type MotorRenewalModule = 'motor-renewal' | 'motor-fleet-renewal';
@@ -537,7 +542,7 @@ export async function updateMotorEnquiryStatus(
   // class_of_enquiry is used by the Motor modules, class_of_insurance by
   // general-new; converted_premium is now saved on every transition incl. Lost.
   payload: {
-    status: 'new' | 'in_progress' | 'converted' | 'retained' | 'lost' | 'rejected';
+    status: 'new' | 'in_progress' | 'shared_with_client' | 'converted' | 'retained' | 'lost' | 'rejected';
     revisions?: number;
     quotes_compared?: number;
     class_of_enquiry?: string;
@@ -709,6 +714,9 @@ export interface GeneralRenewalStats {
   total_potential_premium: number;
   // TED-595: count of rejected entries in the same scope (drives the Rejected card).
   rejected: number;
+  // TED-596: count of enquiries at the 'shared_with_client' stage (Marine New's
+  // dashboard card). 0 for every other enquiry module.
+  shared_with_client?: number;
   // TED-594: count of voided entries in the same scope (drives the Voided card).
   voided: number;
 }
@@ -891,8 +899,13 @@ export interface SettingsLookup {
 export type AccidentType = SettingsLookup;
 export type InsuranceCompany = SettingsLookup;
 export type ClassOfInsurance = SettingsLookup;
+export type MarineClassOfInsurance = SettingsLookup;
 
-type LookupResource = 'accident-types' | 'insurance-companies' | 'class-of-insurance';
+type LookupResource =
+  | 'accident-types'
+  | 'insurance-companies'
+  | 'class-of-insurance'
+  | 'marine-class-of-insurance';
 
 async function _listLookup(
   resource: LookupResource,
@@ -919,6 +932,9 @@ export const getInsuranceCompanies = (params?: { is_active?: boolean }) =>
 
 export const getClassOfInsurance = (params?: { is_active?: boolean }) =>
   _listLookup('class-of-insurance', params);
+
+export const getMarineClassOfInsurance = (params?: { is_active?: boolean }) =>
+  _listLookup('marine-class-of-insurance', params);
 
 // Paginated + searchable variants for SearchableSelect dropdowns.
 async function _listLookupPage(
@@ -957,6 +973,10 @@ export const getClassOfInsurancePage = (
   params: { search?: string; page?: number; page_size?: number; is_active?: boolean } = {}
 ) => _listLookupPage('class-of-insurance', params);
 
+export const getMarineClassOfInsurancePage = (
+  params: { search?: string; page?: number; page_size?: number; is_active?: boolean } = {}
+) => _listLookupPage('marine-class-of-insurance', params);
+
 export async function createClassOfInsurance(
   name: string,
 ): Promise<ApiResponse<ClassOfInsurance>> {
@@ -972,6 +992,25 @@ export async function updateClassOfInsurance(
 ): Promise<ApiResponse<ClassOfInsurance>> {
   return fetchApi<ClassOfInsurance>(
     `/api/entries/settings/class-of-insurance/${id}/`,
+    { method: 'PATCH', body: JSON.stringify(data) },
+  );
+}
+
+export async function createMarineClassOfInsurance(
+  name: string,
+): Promise<ApiResponse<MarineClassOfInsurance>> {
+  return fetchApi<MarineClassOfInsurance>('/api/entries/settings/marine-class-of-insurance/', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function updateMarineClassOfInsurance(
+  id: number,
+  data: { name?: string; is_active?: boolean },
+): Promise<ApiResponse<MarineClassOfInsurance>> {
+  return fetchApi<MarineClassOfInsurance>(
+    `/api/entries/settings/marine-class-of-insurance/${id}/`,
     { method: 'PATCH', body: JSON.stringify(data) },
   );
 }
@@ -1279,6 +1318,7 @@ export const REMARKS_MODEL_NAME_BY_API_SLUG: Record<string, string> = {
   'motor-fleet-renewal': 'motorfleetrenewalentry',
   'motor-claim': 'motorclaimentry',
   'sales-kpi': 'saleskpientry',
+  'marine-new': 'marinenewentry',
 };
 
 // ─── TED-554: Tracker export (.xlsx) ─────────────────────────────────────────

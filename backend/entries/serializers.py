@@ -24,11 +24,13 @@ from .models import (
     TypeOfAccident,
     InsuranceCompany,
     ClassOfInsurance,
+    MarineClassOfInsurance,
     MOTOR_CLASS_OF_ENQUIRY_CHOICES,
     SalesKPIEntry,
     SalesKPIStatusTransition,
     SalesMonthlyTarget,
     MarineNewEntry,
+    MarineNewStatusTransition,
     MarineRenewalEntry,
     MedicalClaimEntry,
 )
@@ -1072,14 +1074,118 @@ class MotorFleetRenewalMonthlyTargetSerializer(serializers.ModelSerializer):
 
 
 class MarineNewEntrySerializer(BaseEntrySerializer):
+    """Per-enquiry serializer for marine new (TED-596) — mirrors
+    GeneralNewEntrySerializer; class_of_insurance resolves against the
+    dedicated MarineClassOfInsurance lookup via the model FK."""
+    enforce_one_per_day = False
+
+    agent_name = serializers.SerializerMethodField()
+    tat_display = serializers.SerializerMethodField()
+    accuracy_pct = serializers.SerializerMethodField()
+    allowed_transitions = serializers.SerializerMethodField()
+    is_terminal = serializers.SerializerMethodField()
+    class_of_insurance_display = serializers.CharField(
+        source='class_of_insurance.name', read_only=True, default=None,
+    )
+    insurance_company_name = serializers.CharField(
+        source='insurance_company.name', read_only=True, default=None,
+    )
+    compared_insurance_companies_names = serializers.SlugRelatedField(
+        source='compared_insurance_companies', slug_field='name',
+        many=True, read_only=True,
+    )
+    # Write-only: when present on POST, perform_create seeds it as the first EntryRemark on the new entry.
+    initial_remark = serializers.CharField(write_only=True, required=False, allow_blank=True, default='')
+
     class Meta:
         model = MarineNewEntry
         fields = [
-            'id', 'pib_id', 'date', 'gross_booked_premium', 'quotes_created',
-            'new_clients_acquired', 'new_policies_issued',
-            'added_by', 'added_by_name', 'on_behalf_of', 'on_behalf_of_name', 'added_at', 'updated_at', 'is_editable'
+            'id', 'pib_id', 'date',
+            'client_name', 'agent', 'agent_name', 'initial_remark',
+            'status', 'revisions', 'quotes_compared', 'status_changed_at',
+            'tat_display', 'accuracy_pct',
+            'allowed_transitions', 'is_terminal',
+            'potential_premium', 'converted_premium',
+            'class_of_insurance', 'class_of_insurance_display',
+            'insurance_company', 'insurance_company_name',
+            'compared_insurance_companies', 'compared_insurance_companies_names',
+            'added_by', 'added_by_name',
+            'on_behalf_of', 'on_behalf_of_name',
+            'added_at', 'updated_at', 'is_editable', 'remark_count',
         ]
-        read_only_fields = ['id', 'pib_id', 'added_by', 'on_behalf_of', 'added_at', 'updated_at']
+        read_only_fields = [
+            'id', 'pib_id', 'added_by', 'on_behalf_of',
+            'status', 'status_changed_at',
+            'tat_display', 'accuracy_pct',
+            'allowed_transitions', 'is_terminal',
+            'class_of_insurance_display', 'insurance_company_name',
+            'compared_insurance_companies_names',
+            'converted_premium',
+            'added_at', 'updated_at',
+        ]
+
+    def get_agent_name(self, obj):
+        return obj.agent.get_full_name()
+
+    def get_tat_display(self, obj):
+        return obj.get_tat_display()
+
+    def get_accuracy_pct(self, obj):
+        return obj.accuracy_pct
+
+    def get_allowed_transitions(self, obj):
+        return MarineNewEntry.get_allowed_transitions(obj.status)
+
+    def get_is_terminal(self, obj):
+        return obj.is_terminal
+
+
+class MarineNewStatusUpdateSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=MarineNewEntry.STATUS_CHOICES)
+    revisions = serializers.IntegerField(min_value=0, required=False)
+    quotes_compared = serializers.IntegerField(min_value=0, required=False)
+    # TED-596: the Won modal does NOT re-confirm the class of insurance for
+    # Marine, but the field is kept accepted server-side for parity/corrections.
+    class_of_insurance = serializers.PrimaryKeyRelatedField(
+        queryset=MarineClassOfInsurance.objects.all(), required=False, allow_null=True,
+    )
+    insurance_company = serializers.PrimaryKeyRelatedField(
+        queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
+    )
+    converted_premium = serializers.DecimalField(
+        max_digits=15, decimal_places=2, required=False, min_value=0,
+    )
+
+    def validate_status(self, value):
+        entry = self.context['entry']
+        allowed = MarineNewEntry.get_allowed_transitions(entry.status)
+        if value not in allowed:
+            current_label = dict(MarineNewEntry.STATUS_CHOICES).get(entry.status)
+            allowed_labels = [dict(MarineNewEntry.STATUS_CHOICES).get(s) for s in allowed]
+            raise serializers.ValidationError(
+                f"Cannot transition from '{current_label}' to "
+                f"'{dict(MarineNewEntry.STATUS_CHOICES).get(value)}'. "
+                f"Allowed: {allowed_labels}"
+            )
+        return value
+
+
+class MarineNewRevisionsUpdateSerializer(serializers.Serializer):
+    revisions = serializers.IntegerField(min_value=0)
+
+
+class MarineClassOfInsuranceSerializer(serializers.ModelSerializer):
+    """Admin-managed Marine Class of Insurance lookup (Settings tab, TED-596)."""
+    class Meta:
+        model = MarineClassOfInsurance
+        fields = ['id', 'name', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        cleaned = (value or '').strip()
+        if not cleaned:
+            raise serializers.ValidationError("Name cannot be blank.")
+        return cleaned
 
 
 class MarineRenewalEntrySerializer(BaseEntrySerializer):

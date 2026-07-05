@@ -1,11 +1,15 @@
 'use client';
 
 /**
- * Shared standalone page for the Motor New + Motor Renewal modules.
+ * Standalone page for the General New module.
  *
- * Both modules share an identical per-enquiry schema (client_name, agent FK,
- * chassis_no, remarks, status state-machine, revisions, status_changed_at),
- * so a single page implementation is reused for both routes.
+ * Cloned from MotorEnquiryPage on 2026-05-15. Mirrors Motor New's per-enquiry
+ * workflow (client_name, agent FK, remarks, status state machine, revisions,
+ * status_changed_at) but WITHOUT the motor-specific chassis_no field — general
+ * insurance products don't have a chassis.
+ *
+ * IMPORTANT: this file was duplicated rather than refactored into a shared
+ * base. Future bug fixes in MotorEnquiryPage need to be mirrored here too.
  *
  * Tabs: Dashboard | Tracker View | Enquiries
  *   - Dashboard: 6 stat cards driven by /stats/
@@ -72,27 +76,28 @@ import { ExportTrackerButton } from '@/app/components/ExportTrackerButton';
 import { useAuth } from '@/app/context/AuthContext';
 import { useConfirm } from '@/app/components/ConfirmDialog';
 import { formatDate, businessToday } from '@/app/lib/date';
+import { useTrackerCounts } from '@/app/lib/useTrackerCounts';
 import { formatPremium, formatNumber } from '@/app/lib/number';
 import { formatTatFromMinutes } from '@/app/lib/tat';
 import { useAddShortcut } from '@/app/lib/useAddShortcut';
 import { useSubmitShortcut } from '@/app/lib/useSubmitShortcut';
-import { useTrackerCounts } from '@/app/lib/useTrackerCounts';
 import {
   fetchApi,
   getUsersForModule,
   getUsersForModulePage,
   getInsuranceCompaniesPage,
   getInsuranceCompanies,
+  getMarineClassOfInsurancePage,
   getMotorEnquiryStats,
   updateMotorEnquiryStatus,
   updateMotorEnquiryRevisions,
-  getRemarksContentTypes,
-  REMARKS_MODEL_NAME_BY_API_SLUG,
-  voidEntry,
   getCurrentMotorRenewalMonthlyTarget,
   getMotorRenewalMonthlyTargets,
   createMotorRenewalMonthlyTarget,
   updateMotorRenewalMonthlyTarget,
+  getRemarksContentTypes,
+  REMARKS_MODEL_NAME_BY_API_SLUG,
+  voidEntry,
   type MotorRenewalMonthlyTarget,
   type MotorEnquiryEntry,
   type InsuranceCompany,
@@ -117,10 +122,6 @@ interface ModuleStatusConfig {
 }
 
 const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
-  // 'general-new' has its own page (GeneralNewEnquiryPage). This entry exists
-  // only to satisfy the Record key requirement after `MotorEnquiryModule` was
-  // widened to include 'general-new'; MotorEnquiryPage itself is never
-  // instantiated with apiSlug='general-new'.
   'general-new': {
     options: [
       { value: 'new', label: 'New Enquiry' },
@@ -184,9 +185,8 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
     totalLabel: 'Total Enquiries Added',
     showRatioCard: true,
   },
-  // TED-596: 'marine-new' has its own page (MarineNewEnquiryPage). This entry
-  // exists only to satisfy the Record key requirement after MotorEnquiryModule
-  // was widened; MotorEnquiryPage is never instantiated with apiSlug='marine-new'.
+  // TED-596: the module this page actually renders. New / In Progress / Shared
+  // With Client are open working stages; Won / Rejected / Lost are terminal.
   'marine-new': {
     options: [
       { value: 'new', label: 'New Enquiry' },
@@ -236,17 +236,10 @@ function formatAccuracy(pct: number | null | undefined): string {
   return `${pct.toFixed(1)}%`;
 }
 
-export interface MotorEnquiryPageProps {
-  moduleKey: 'motor_new' | 'motor_renewal' | 'motor_fleet_new' | 'motor_fleet_renewal';
-  apiSlug: MotorEnquiryModule;
-  title: string;
-}
-
-export function MotorEnquiryPage({
-  moduleKey,
-  apiSlug,
-  title,
-}: MotorEnquiryPageProps) {
+export function MarineNewEnquiryPage() {
+  const moduleKey = 'marine_new' as const;
+  const apiSlug: MotorEnquiryModule = 'marine-new';
+  const title = 'Marine New';
   const config = STATUS_CONFIG[apiSlug];
   const statusLabelFor = useCallback(
     (value: MotorEnquiryEntry['status']) => {
@@ -280,7 +273,7 @@ export function MotorEnquiryPage({
   const [statusFilter, setStatusFilter] = useState('');
   const [clientName, setClientName] = useState('');
   const [insuranceCompanyFilter, setInsuranceCompanyFilter] = useState('');
-  const [classOfEnquiryFilter, setClassOfEnquiryFilter] = useState('');
+  const [classOfInsuranceFilter, setClassOfInsuranceFilter] = useState('');
 
   // Dashboard filters (independent of enquiries filters to avoid coupling).
   const [dashFrom, setDashFrom] = useState('');
@@ -342,8 +335,6 @@ export function MotorEnquiryPage({
   // TED-594: void (write-off) confirmation target + in-flight flag.
   const [voidTarget, setVoidTarget] = useState<MotorEnquiryEntry | null>(null);
   const [isVoiding, setIsVoiding] = useState(false);
-  // Map of {model_name: content_type_id} for all 7 remark-supporting modules;
-  // fetched once on mount and cached. Used by the shared RemarksPanel.
   const [ctMap, setCtMap] = useState<Record<string, number>>({});
   useEffect(() => {
     getRemarksContentTypes().then((res) => {
@@ -364,28 +355,6 @@ export function MotorEnquiryPage({
   const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
   const [currentTargetLoaded, setCurrentTargetLoaded] = useState(false);
   const [currentTarget, setCurrentTarget] = useState<MotorRenewalMonthlyTarget | null>(null);
-  // TED-464 card view selector (renewal modules only, aggregator viewers only).
-  // 'team' → aggregated; 'my' → admin's own data; '<id>' → a specific user.
-  const isAggregator = isHodUser || !!user?.is_staff;
-  // HODs have no personal data so default them to 'team'. Everyone else
-  // (admins included) defaults to their own data — they can switch via the
-  // dropdown.
-  const [cardView, setCardView] = useState<string>(() =>
-    isHodUser ? 'team' : 'my',
-  );
-  const cardViewUserId =
-    cardView === 'team'
-      ? ''
-      : cardView === 'my'
-        ? (currentUserId != null ? String(currentUserId) : '')
-        : cardView;
-  // True when the target row currently displayed belongs to the viewer
-  // (regular user, or aggregator on the 'my' scope). Drives Edit-button
-  // visibility on the small card AND inline-edit affordances in the side
-  // panel — both must stay read-only when team-aggregated or another user's
-  // row is on screen, since the backend's perform_create always binds new
-  // rows to request.user and team aggregates have no id to PATCH against.
-  const isOwnTargetView = !isAggregator || cardView === 'my';
 
   // Right-side "Monthly Targets" panel — same UX as Sales KPI's panel.
   const [isPanelOpen, setIsPanelOpen] = useState(false);
@@ -408,7 +377,7 @@ export function MotorEnquiryPage({
       if (statusFilter) qs.set('status', statusFilter);
       if (clientName) qs.set('client_name', clientName);
       if (insuranceCompanyFilter) qs.set('insurance_company', insuranceCompanyFilter);
-      if (classOfEnquiryFilter) qs.set('class_of_enquiry', classOfEnquiryFilter);
+      if (classOfInsuranceFilter) qs.set('class_of_insurance', classOfInsuranceFilter);
 
       const result = await fetchApi<{ results: MotorEnquiryEntry[]; count: number }>(
         `/api/entries/${apiSlug}/?${qs}`
@@ -418,7 +387,7 @@ export function MotorEnquiryPage({
     } finally {
       setIsLoading(false);
     }
-  }, [apiSlug, page, pageSize, dateFrom, dateTo, userId, agentId, statusFilter, clientName, insuranceCompanyFilter, classOfEnquiryFilter]);
+  }, [apiSlug, page, pageSize, dateFrom, dateTo, userId, agentId, statusFilter, clientName, insuranceCompanyFilter, classOfInsuranceFilter]);
 
   const fetchStats = useCallback(async () => {
     const result = await getMotorEnquiryStats(apiSlug, {
@@ -453,33 +422,26 @@ export function MotorEnquiryPage({
   });
 
   // ── Motor Renewal target fetchers ─────────────────────────────────────────
-  // Both motor-renewal and motor-fleet-renewal expose the monthly-target
-  // sub-resource with the same shape, so they share this code path.
-  const isRenewal = apiSlug === 'motor-renewal' || apiSlug === 'motor-fleet-renewal';
-  // Motor Fleet modules hide Chassis No + Class of Enquiry everywhere (TED-568).
-  const isFleet = moduleKey === 'motor_fleet_new' || moduleKey === 'motor_fleet_renewal';
+  // General New has no monthly retention target — these are renewal-only.
+  // Hardcoded false so the renewal-target code paths below are unreachable;
+  // they remain in the file because this component was cloned from
+  // MotorEnquiryPage and the dead branches help keep diffs against the source
+  // small for future bug-fix mirroring.
+  const isRenewal = false;
   const renewalModule = apiSlug as MotorRenewalModule;
 
   const fetchCurrentTarget = useCallback(async () => {
     if (!isRenewal) return;
-    // Pass the viewer's own id so aggregator viewers (HOD/admin) read their
-    // OWN current-month target, not the team aggregate. Backend ignores the
-    // param for non-aggregator viewers (it always filters by request.user).
-    const result = await getCurrentMotorRenewalMonthlyTarget(renewalModule, {
-      user_id: currentUserId ?? undefined,
-    });
+    const result = await getCurrentMotorRenewalMonthlyTarget(renewalModule);
     setCurrentTarget(result.data ?? null);
     setCurrentTargetLoaded(true);
-  }, [isRenewal, renewalModule, currentUserId]);
+  }, [isRenewal, renewalModule]);
 
   const fetchSheetTargets = useCallback(async () => {
     if (!isRenewal) return;
-    const result = await getMotorRenewalMonthlyTargets(renewalModule, {
-      year: sheetYear,
-      user_id: cardViewUserId || undefined,
-    });
+    const result = await getMotorRenewalMonthlyTargets(renewalModule, { year: sheetYear });
     setSheetTargets(result.data ?? []);
-  }, [isRenewal, renewalModule, sheetYear, cardViewUserId]);
+  }, [isRenewal, renewalModule, sheetYear]);
 
   const handleSheetInlineSave = async (month: number) => {
     const raw = sheetInlineValues[month];
@@ -524,17 +486,12 @@ export function MotorEnquiryPage({
 
   const fetchTargetCard = useCallback(async () => {
     if (!isRenewal) return;
-    // TED-464: viewing scope is driven by `cardViewUserId`.
-    //   '' → aggregated team target + team-wide retained count
-    //   '<id>' → that user's target + that user's retained count
-    // Regular users always pass their own id (the server enforces it anyway).
-    const effectiveUserId =
-      cardViewUserId || (currentUserId != null ? String(currentUserId) : '');
+    // Fetch the target row for the displayed month + count of retained
+    // enquiries in that same month for the logged-in user.
     const [targetResult, statsResult] = await Promise.all([
       getMotorRenewalMonthlyTargets(renewalModule, {
         year: targetCardYear,
         month: targetCardMonth,
-        user_id: cardViewUserId || undefined,
       }),
       (async () => {
         const firstDay = `${targetCardYear}-${String(targetCardMonth).padStart(2, '0')}-01`;
@@ -544,20 +501,13 @@ export function MotorEnquiryPage({
           date_to: lastDay,
           status: 'retained',
         });
-        // Team view ('' for aggregator) skips the user filter so the count
-        // covers the whole team.
-        if (cardView !== 'team' && effectiveUserId) {
-          qs.set('user_id', effectiveUserId);
-        }
+        if (currentUserId != null) qs.set('user_id', String(currentUserId));
         return fetchApi<{ count: number }>(`/api/entries/${apiSlug}/?${qs}`);
       })(),
     ]);
     setTargetCard(targetResult.data?.[0] ?? null);
     setTargetActuals(statsResult.data?.count ?? 0);
-  }, [
-    isRenewal, renewalModule, apiSlug, targetCardYear, targetCardMonth,
-    currentUserId, cardView, cardViewUserId,
-  ]);
+  }, [isRenewal, renewalModule, apiSlug, targetCardYear, targetCardMonth, currentUserId]);
 
   // ── Initial loads ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -587,14 +537,8 @@ export function MotorEnquiryPage({
   }, [fetchTargetCard]);
 
   // True once the /current/ call resolves and finds no target for this month.
-  // Triggers the auto-open of the target-setup popup. HODs are oversight-only
-  // and cannot author targets, so they're excluded entirely.
-  const noCurrentTarget =
-    isRenewal && !isHodUser && currentTargetLoaded && !currentTarget;
-  // The popup is only HARD-required (locked closed, blocks Add) for regular
-  // users. Admins see the same popup but can dismiss it and add entries
-  // without a personal target, since they typically work against team data.
-  const targetIsRequired = noCurrentTarget && !user?.is_staff;
+  // Blocks all data-entry mutations on the page until cleared.
+  const noCurrentTarget = isRenewal && currentTargetLoaded && !currentTarget;
   const isCurrentMonthCard =
     targetCardYear === today.getFullYear() &&
     targetCardMonth === today.getMonth() + 1;
@@ -610,13 +554,6 @@ export function MotorEnquiryPage({
   useEffect(() => {
     if (isPanelOpen) fetchSheetTargets();
   }, [isPanelOpen, sheetYear, fetchSheetTargets]);
-  // Cancel any in-progress month-row edit when the scope or year changes — the
-  // edited value would otherwise be orphaned against the freshly-fetched
-  // (possibly read-only) target set.
-  useEffect(() => {
-    setSheetEditingMonth(null);
-    setSheetInlineValues({});
-  }, [cardViewUserId, sheetYear]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
   const refreshAfterMutation = () => {
@@ -629,11 +566,10 @@ export function MotorEnquiryPage({
   const handleSaveNew = async (payload: {
     client_name: string;
     agent: number;
-    chassis_no: string;
     remarks: string;
     quotes_compared: number;
     potential_premium: string | null;
-    class_of_enquiry: string;
+    class_of_insurance: number | null;
     compared_insurance_companies: number[];
   }) => {
     setModalError('');
@@ -662,9 +598,7 @@ export function MotorEnquiryPage({
   };
 
   const openAddModal = () => {
-    // Only force the target-setup detour when the gate is hard-required.
-    // Admins can add entries without setting a personal target.
-    if (targetIsRequired) {
+    if (noCurrentTarget) {
       setIsTargetModalOpen(true);
       return;
     }
@@ -673,7 +607,6 @@ export function MotorEnquiryPage({
     setIsModalOpen(true);
   };
   // TED-483: "C" anywhere on the page triggers the same Add flow as the button.
-  // Gated so HODs (who can't write) and users mid-modal don't trigger it.
   useAddShortcut(openAddModal, {
     enabled: !isHodUser && !isModalOpen && !isTargetModalOpen,
   });
@@ -740,7 +673,9 @@ export function MotorEnquiryPage({
       status: newStatus,
       ...(revisions != null ? { revisions } : {}),
       ...(quotesCompared != null ? { quotes_compared: quotesCompared } : {}),
-      ...(coverage !== undefined ? { class_of_enquiry: coverage } : {}),
+      ...(coverage !== undefined
+        ? { class_of_insurance: coverage ? Number(coverage) : null }
+        : {}),
       // TED-592: the insurer the client purchased from (Won modal, success only).
       ...(wonInsurer ? { insurance_company: Number(wonInsurer) } : {}),
       ...(convertedPremium ? { converted_premium: convertedPremium } : {}),
@@ -770,10 +705,7 @@ export function MotorEnquiryPage({
   };
 
   // ── Columns ──────────────────────────────────────────────────────────────
-  // Defined in their canonical order; the renewal modules that share this
-  // component render this order as-is. Motor New / Motor Fleet New reorder it
-  // below via NEW_MODULE_COLUMN_ORDER.
-  const baseColumns = [
+  const columns = [
     {
       key: 'pib_id',
       header: 'ID',
@@ -800,8 +732,9 @@ export function MotorEnquiryPage({
               } else if (v === 'rejected') {
                 // TED-595: irreversible decline — simple warning confirm.
                 handleReject(item);
-              } else if (v === 'new' || v === 'in_progress') {
-                // New ↔ In Progress is a free, no-confirmation transition.
+              } else if (v === 'new' || v === 'in_progress' || v === 'shared_with_client') {
+                // TED-596: New / In Progress / Shared With Client are open
+                // stages — free, no-confirmation transitions.
                 applyStatusChange(item, v);
               }
             }}
@@ -842,29 +775,25 @@ export function MotorEnquiryPage({
       ),
     },
     {
-      key: 'class_of_enquiry',
-      header: 'Class of Enquiry',
-      render: (item: MotorEnquiryEntry) =>
-        (item.class_of_enquiry_display as string | undefined) || '—',
+      key: 'potential_premium',
+      header: 'Potential Premium',
+      render: (item: MotorEnquiryEntry) => {
+        const raw = item.potential_premium as string | null | undefined;
+        if (raw == null || raw === '') return '—';
+        const n = Number(raw);
+        return Number.isFinite(n) ? formatPremium(n) : raw;
+      },
     },
     {
-      key: 'added_by_name',
-      header: 'Added by',
-      render: (item: MotorEnquiryEntry) => <AddedByCell entry={item} />,
+      key: 'converted_premium',
+      header: 'Converted Premium',
+      render: (item: MotorEnquiryEntry) => {
+        const raw = item.converted_premium as string | null | undefined;
+        if (raw == null || raw === '') return '—';
+        const n = Number(raw);
+        return Number.isFinite(n) ? formatPremium(n) : raw;
+      },
     },
-    { key: 'agent_name', header: 'Agent Name' },
-    {
-      key: 'insurance_company',
-      header: 'Insurance Company',
-      // TED-592: show the purchased insurer once Won; before that, the insurers
-      // compared while the enquiry was open.
-      render: (item: MotorEnquiryEntry) =>
-        item.insurance_company_name ||
-        (item.compared_insurance_companies_names?.length
-          ? item.compared_insurance_companies_names.join(', ')
-          : '—'),
-    },
-    { key: 'chassis_no', header: 'Chassis No' },
     {
       key: 'revisions',
       header: 'Revisions',
@@ -902,6 +831,11 @@ export function MotorEnquiryPage({
       },
     },
     {
+      key: 'quotes_compared',
+      header: 'No. of Quotes Compared',
+      render: (item: MotorEnquiryEntry) => item.quotes_compared,
+    },
+    {
       key: 'tat_display',
       header: 'TAT',
       render: (item: MotorEnquiryEntry) => item.tat_display || '—',
@@ -912,29 +846,27 @@ export function MotorEnquiryPage({
       render: (item: MotorEnquiryEntry) => formatAccuracy(item.accuracy_pct),
     },
     {
-      key: 'quotes_compared',
-      header: 'No. of Quotes Compared',
-      render: (item: MotorEnquiryEntry) => item.quotes_compared,
+      key: 'added_by_name',
+      header: 'Added by',
+      render: (item: MotorEnquiryEntry) => <AddedByCell entry={item} />,
+    },
+    { key: 'agent_name', header: 'Agent Name' },
+    {
+      key: 'class_of_insurance',
+      header: 'Class of Insurance',
+      render: (item: MotorEnquiryEntry) =>
+        (item.class_of_insurance_display as string | null | undefined) || '—',
     },
     {
-      key: 'potential_premium',
-      header: 'Potential Premium',
-      render: (item: MotorEnquiryEntry) => {
-        const raw = item.potential_premium as string | null | undefined;
-        if (raw == null || raw === '') return '—';
-        const n = Number(raw);
-        return Number.isFinite(n) ? formatPremium(n) : raw;
-      },
-    },
-    {
-      key: 'converted_premium',
-      header: 'Converted Premium',
-      render: (item: MotorEnquiryEntry) => {
-        const raw = item.converted_premium as string | null | undefined;
-        if (raw == null || raw === '') return '—';
-        const n = Number(raw);
-        return Number.isFinite(n) ? formatPremium(n) : raw;
-      },
+      key: 'insurance_company',
+      header: 'Insurance Company',
+      // TED-592: show the purchased insurer once Won; before that, the insurers
+      // compared while the enquiry was open.
+      render: (item: MotorEnquiryEntry) =>
+        item.insurance_company_name ||
+        (item.compared_insurance_companies_names?.length
+          ? item.compared_insurance_companies_names.join(', ')
+          : '—'),
     },
     {
       key: 'added_at',
@@ -943,32 +875,9 @@ export function MotorEnquiryPage({
     },
   ];
 
-  // Motor New & Motor Fleet New use a specific column order; the renewal
-  // modules that share this component keep their original order untouched.
-  const NEW_MODULE_COLUMN_ORDER = [
-    'pib_id', 'client_name', 'status', 'notes',
-    'potential_premium', 'converted_premium', 'revisions', 'quotes_compared',
-    'tat_display', 'accuracy_pct', 'added_by_name', 'agent_name',
-  ];
-  const columns = isRenewal
-    ? baseColumns
-    : [
-        ...NEW_MODULE_COLUMN_ORDER
-          .map((k) => baseColumns.find((c) => c.key === k))
-          .filter((c): c is (typeof baseColumns)[number] => Boolean(c)),
-        ...baseColumns.filter(
-          (c) => !NEW_MODULE_COLUMN_ORDER.includes(c.key as string)
-        ),
-      ];
-
-  // Motor Fleet drops the Chassis No + Class of Enquiry columns (TED-568).
-  const visibleColumns = isFleet
-    ? columns.filter((c) => c.key !== 'chassis_no' && c.key !== 'class_of_enquiry')
-    : columns;
-
   const hasActiveFilters =
     !!(dateFrom || dateTo || userId || agentId || statusFilter || clientName ||
-      insuranceCompanyFilter || classOfEnquiryFilter);
+      insuranceCompanyFilter || classOfInsuranceFilter);
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -998,13 +907,6 @@ export function MotorEnquiryPage({
           month={targetCardMonth}
           target={targetCard}
           actuals={targetActuals}
-          isReadOnly={isHodUser || !isOwnTargetView}
-          showViewSelector={isAggregator}
-          showMyDealsOption={!!user?.is_staff}
-          cardView={cardView}
-          onCardViewChange={setCardView}
-          moduleUsers={moduleUsers}
-          currentUserId={currentUserId}
           onPrev={() => {
             if (targetCardMonth === 1) {
               setTargetCardMonth(12);
@@ -1081,9 +983,7 @@ export function MotorEnquiryPage({
               />
             )}
             <StatCard label={config.totalLabel} value={stats.total} accent="text-[#09090B]" />
-            {!isRenewal && (
-              <StatCard label="In Progress" value={stats.in_progress} accent="text-amber-600" />
-            )}
+            <StatCard label="In Progress" value={stats.in_progress} accent="text-amber-600" />
             <StatCard label="Enquiries Revised" value={stats.revised} accent="text-[#A855F7]" />
             <StatCard
               label={statusLabelFor(config.successValue)}
@@ -1264,27 +1164,24 @@ export function MotorEnquiryPage({
                     };
                   },
                 },
+                {
+                  label: 'Class of Insurance',
+                  value: classOfInsuranceFilter,
+                  onChange: (v) => {
+                    setClassOfInsuranceFilter(v);
+                    setPage(1);
+                  },
+                  placeholder: 'All Classes',
+                  clearLabel: 'All Classes',
+                  fetchPage: async ({ search, page }) => {
+                    const res = await getMarineClassOfInsurancePage({ search, page });
+                    return {
+                      results: res.data?.results ?? [],
+                      hasMore: res.data?.has_more ?? false,
+                    };
+                  },
+                },
               ]}
-              extraSelects={
-                // Motor Fleet has no Class of Enquiry filter (TED-568).
-                isFleet
-                  ? []
-                  : [
-                      {
-                        label: 'Class of Enquiry',
-                        value: classOfEnquiryFilter,
-                        onChange: (v) => {
-                          setClassOfEnquiryFilter(v);
-                          setPage(1);
-                        },
-                        options: [
-                          { value: 'all', label: 'All Classes' },
-                          { value: 'comprehensive', label: 'Comprehensive' },
-                          { value: 'tpl', label: 'TPL' },
-                        ],
-                      },
-                    ]
-              }
               hasActiveFilters={hasActiveFilters}
               onClear={() => {
                 setDateFrom('');
@@ -1294,14 +1191,14 @@ export function MotorEnquiryPage({
                 setStatusFilter('');
                 setClientName('');
                 setInsuranceCompanyFilter('');
-                setClassOfEnquiryFilter('');
+                setClassOfInsuranceFilter('');
                 setPage(1);
               }}
             />
             {!isHodUser && (
               <Button
-                disabled={targetIsRequired}
-                title={targetIsRequired ? "Set this month's retention target first" : undefined}
+                disabled={noCurrentTarget}
+                title={noCurrentTarget ? "Set this month's retention target first" : undefined}
                 onClick={openAddModal}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -1313,7 +1210,7 @@ export function MotorEnquiryPage({
           <div className="flex gap-4">
             <div className="flex-1 min-w-0">
               <DataTable
-                columns={visibleColumns}
+                columns={columns}
                 data={entries}
                 totalCount={totalCount}
                 page={page}
@@ -1343,7 +1240,6 @@ export function MotorEnquiryPage({
                 rowActions={(entry) => {
                   const actions: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
                   if (
-                    !isRenewal &&
                     !entry.is_voided &&
                     entry.status === config.successValue &&
                     canModifyEntry(user, entry.added_by)
@@ -1397,7 +1293,6 @@ export function MotorEnquiryPage({
           <EnquiryForm
             entry={editingEntry}
             error={modalError}
-            isFleet={isFleet}
             onSave={handleSaveNew}
             onClose={() => {
               setIsModalOpen(false);
@@ -1407,19 +1302,17 @@ export function MotorEnquiryPage({
         </DialogContent>
       </Dialog>
 
-      {/* ── Status transition verification modal (TED-440) ───────────── */}
-      {/* TED-593: the Class of Enquiry confirmation was removed from the
-          Won/Lost modal for Motor New + Motor Renewal — the class chosen in the
-          add-enquiry modal is authoritative. `coverage` is omitted so the modal
-          no longer renders the dropdown, and `class_of_enquiry` is left out of
-          the status PATCH entirely (passing '' would wipe the stored value),
-          preserving whatever was set at creation. */}
+      {/* ── Status transition verification modal ─────────────────────────
+          TED-596: Marine does NOT re-confirm the Class of Insurance on a Won
+          (the `coverage` slot is omitted — class is captured at creation).
+          Only Won captures the insurer + converted premium; Lost captures
+          neither, and Rejected never reaches this modal. */}
       {pendingStatus && (
         <EnquiryStatusModal
           entry={pendingStatus.entry}
-          needsConvertedPremium={pendingStatus.newStatus !== 'lost'}
+          needsConvertedPremium={pendingStatus.newStatus === config.successValue}
           insurer={
-            pendingStatus.newStatus !== 'lost'
+            pendingStatus.newStatus === config.successValue
               ? {
                   label: 'Insurance Company',
                   helper:
@@ -1444,7 +1337,7 @@ export function MotorEnquiryPage({
                 }
               : undefined
           }
-          insurerRequired={pendingStatus.newStatus !== 'lost'}
+          insurerRequired={pendingStatus.newStatus === config.successValue}
           onCancel={() => setPendingStatus(null)}
           onConfirm={({ revisions, quotes_compared, insurance_company, converted_premium }) =>
             applyStatusChange(
@@ -1452,6 +1345,8 @@ export function MotorEnquiryPage({
               pendingStatus.newStatus,
               revisions,
               quotes_compared,
+              // coverage omitted (undefined) — never re-sends class_of_insurance,
+              // so the class set at creation is preserved on a Won.
               undefined,
               converted_premium,
               insurance_company,
@@ -1498,22 +1393,19 @@ export function MotorEnquiryPage({
         <MotorRenewalTargetModal
           module={renewalModule}
           isOpen={isTargetModalOpen}
-          // Required (non-admin) viewers are locked onto the current month so
-          // they satisfy the gate before doing anything else. Admins (skippable
-          // popup) get the card's currently-displayed month so manual Edits
-          // can target other months.
-          year={targetIsRequired ? today.getFullYear() : targetCardYear}
-          month={targetIsRequired ? today.getMonth() + 1 : targetCardMonth}
-          // For the viewer's own current month, prefer currentTarget (which is
-          // now scoped to the viewer's own user_id, so it's correct for admins
-          // too — the bug where this showed the team aggregate is gone). For
-          // other months use targetCard, which is properly scoped via
-          // cardViewUserId since the Edit affordance is only reachable on the
-          // 'my' scope.
+          // While the user has no current-month target, force the modal onto
+          // the current month regardless of which card month is displayed —
+          // they must satisfy the gate before doing anything else.
+          year={noCurrentTarget ? today.getFullYear() : targetCardYear}
+          month={noCurrentTarget ? today.getMonth() + 1 : targetCardMonth}
           existing={
-            targetIsRequired || isCurrentMonthCard ? currentTarget : targetCard
+            noCurrentTarget
+              ? currentTarget
+              : isCurrentMonthCard
+              ? currentTarget ?? targetCard
+              : targetCard
           }
-          required={targetIsRequired}
+          required={noCurrentTarget}
           onClose={() => setIsTargetModalOpen(false)}
           onSaved={() => {
             setIsTargetModalOpen(false);
@@ -1530,31 +1422,7 @@ export function MotorEnquiryPage({
         <div className="w-[340px] shrink-0 border rounded-lg overflow-hidden bg-white">
           <div className="flex items-start justify-between px-4 py-3 border-b">
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-base text-[#09090B]">Monthly Targets</h3>
-                {isAggregator ? (
-                  <Select value={cardView} onValueChange={setCardView}>
-                    <SelectTrigger className="w-[140px] h-7 shadow-none text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {user?.is_staff && <SelectItem value="my">My Deals</SelectItem>}
-                      <SelectItem value="team">Team Deals</SelectItem>
-                      {moduleUsers
-                        .filter((u) => u.id !== currentUserId)
-                        .map((u) => (
-                          <SelectItem key={u.id} value={String(u.id)}>
-                            {u.full_name || u.email}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-100 text-emerald-700">
-                    My Target
-                  </span>
-                )}
-              </div>
+              <h3 className="font-semibold text-base text-[#09090B]">Monthly Targets</h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Calendar year client retention targets
               </p>
@@ -1680,28 +1548,24 @@ export function MotorEnquiryPage({
                   {isSet ? (
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold text-[#09090B]">{val}</span>
-                      {!isHodUser && isOwnTargetView && (
-                        <button
-                          onClick={enterEdit}
-                          className="text-muted-foreground hover:text-[#09090B]"
-                          aria-label={`Edit ${name} target`}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={enterEdit}
+                        className="text-muted-foreground hover:text-[#09090B]"
+                        aria-label={`Edit ${name} target`}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-3">
                       <span className="text-sm italic text-muted-foreground">Not set</span>
-                      {!isHodUser && isOwnTargetView && (
-                        <button
-                          onClick={enterEdit}
-                          className="text-muted-foreground hover:text-[#09090B]"
-                          aria-label={`Set ${name} target`}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      )}
+                      <button
+                        onClick={enterEdit}
+                        className="text-muted-foreground hover:text-[#09090B]"
+                        aria-label={`Set ${name} target`}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1771,27 +1635,22 @@ function EnquiryForm({
   onSave,
   onClose,
   error,
-  isFleet,
 }: {
   entry: MotorEnquiryEntry | null;
   onSave: (payload: {
     client_name: string;
     agent: number;
-    chassis_no: string;
     remarks: string;
     quotes_compared: number;
     potential_premium: string | null;
-    class_of_enquiry: string;
+    class_of_insurance: number | null;
     compared_insurance_companies: number[];
   }) => void;
   onClose: () => void;
   error: string;
-  // Motor Fleet hides Chassis No + Class of Enquiry (TED-568).
-  isFleet: boolean;
 }) {
   const [clientName, setClientName] = useState(entry?.client_name ?? '');
   const [agentId, setAgentId] = useState<number | null>(entry?.agent ?? null);
-  const [chassisNo, setChassisNo] = useState(entry?.chassis_no ?? '');
   const [remarks, setRemarks] = useState('');
   const [quotesCompared, setQuotesCompared] = useState<string>(
     entry?.quotes_compared != null ? String(entry.quotes_compared) : '0'
@@ -1799,7 +1658,9 @@ function EnquiryForm({
   const [potentialPremium, setPotentialPremium] = useState<string>(
     entry?.potential_premium != null ? String(entry.potential_premium) : ''
   );
-  const [classOfEnquiry, setClassOfEnquiry] = useState<string>(entry?.class_of_enquiry ?? '');
+  const [classOfInsuranceId, setClassOfInsuranceId] = useState<number | null>(
+    typeof entry?.class_of_insurance === 'number' ? entry.class_of_insurance : null,
+  );
   // TED-592: multi-select of the insurers being compared/quoted on this enquiry.
   const [insurerIds, setInsurerIds] = useState<number[]>(
     entry?.compared_insurance_companies ?? []
@@ -1829,29 +1690,42 @@ function EnquiryForm({
     });
   }, []);
 
+  const classOfInsuranceFetchPage = useCallback(
+    async ({ search, page }: { search: string; page: number }) => {
+      const res = await getMarineClassOfInsurancePage({ search, page });
+      return {
+        results: res.data?.results ?? [],
+        hasMore: res.data?.has_more ?? false,
+      };
+    },
+    [],
+  );
+
   useEffect(() => {
     setClientName(entry?.client_name ?? '');
     setAgentId(entry?.agent ?? null);
-    setChassisNo(entry?.chassis_no ?? '');
     setRemarks('');
     setQuotesCompared(entry?.quotes_compared != null ? String(entry.quotes_compared) : '0');
     setPotentialPremium(entry?.potential_premium != null ? String(entry.potential_premium) : '');
-    setClassOfEnquiry(entry?.class_of_enquiry ?? '');
+    setClassOfInsuranceId(
+      typeof entry?.class_of_insurance === 'number' ? entry.class_of_insurance : null,
+    );
     setInsurerIds(entry?.compared_insurance_companies ?? []);
   }, [entry]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agentId) return;
+    // Client Name, Source / Agent, Potential Premium, Class of Insurance and
+    // at least one Insurance Company are all required for General New.
+    if (!agentId || !(Number(potentialPremium) > 0) || !classOfInsuranceId || insurerIds.length === 0) return;
     setIsSubmitting(true);
     onSave({
       client_name: clientName,
       agent: agentId,
-      chassis_no: chassisNo,
       remarks,
       quotes_compared: Math.max(0, Number(quotesCompared || 0)),
       potential_premium: potentialPremium.trim() === '' ? null : potentialPremium.trim(),
-      class_of_enquiry: classOfEnquiry,
+      class_of_insurance: classOfInsuranceId,
       compared_insurance_companies: insurerIds,
     });
     setIsSubmitting(false);
@@ -1890,47 +1764,29 @@ function EnquiryForm({
         />
       </div>
 
-      {!isFleet && (
-        <div className="space-y-2">
-          <Label>Chassis No *</Label>
-          <Input
-            type="text"
-            placeholder="Enter chassis number"
-            value={chassisNo}
-            onChange={(e) => setChassisNo(e.target.value)}
-            required
-          />
-        </div>
-      )}
-
-      <div className={isFleet ? 'space-y-2' : 'grid grid-cols-2 gap-3'}>
+      <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
           <Label>Potential Premium *</Label>
           <NumberInput
             placeholder="0.00"
             value={potentialPremium}
             onValueChange={setPotentialPremium}
-            required
           />
         </div>
-        {!isFleet && (
-          <div className="space-y-2">
-            <Label>Class of Enquiry *</Label>
-            <Select
-              value={classOfEnquiry || '__none__'}
-              onValueChange={(v) => setClassOfEnquiry(v === '__none__' ? '' : v)}
-            >
-              <SelectTrigger className="w-full shadow-none">
-                <SelectValue placeholder="Select class" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Select enquiry</SelectItem>
-                <SelectItem value="comprehensive">Comprehensive</SelectItem>
-                <SelectItem value="tpl">TPL</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
+        <div className="space-y-2">
+          <Label>Class of Insurance *</Label>
+          <SearchableSelect
+            value={classOfInsuranceId ? String(classOfInsuranceId) : null}
+            onValueChange={(v) => setClassOfInsuranceId(v ? Number(v) : null)}
+            placeholder="Select class"
+            emptyLabel="No classes found"
+            clearLabel="None"
+            selectedLabel={(entry?.class_of_insurance_display as string | null | undefined) ?? null}
+            getOptionValue={(c) => String(c.id)}
+            getOptionLabel={(c) => c.name}
+            fetchPage={classOfInsuranceFetchPage}
+          />
+        </div>
       </div>
 
       <div className="space-y-2">
@@ -1979,7 +1835,17 @@ function EnquiryForm({
         <Button type="button" variant="outline" onClick={onClose}>
           Cancel
         </Button>
-        <Button type="submit" disabled={isSubmitting || !clientName || !agentId || !potentialPremium.trim() || insurerIds.length === 0 || (!isFleet && (!chassisNo || !classOfEnquiry))}>
+        <Button
+          type="submit"
+          disabled={
+            isSubmitting ||
+            !clientName ||
+            !agentId ||
+            !(Number(potentialPremium) > 0) ||
+            !classOfInsuranceId ||
+            insurerIds.length === 0
+          }
+        >
           {isSubmitting ? 'Saving…' : entry ? 'Update' : 'Add Enquiry'}
         </Button>
       </DialogFooter>
@@ -2000,14 +1866,6 @@ function ClientRetentionTargetCard({
   onNext,
   onToday,
   onEdit,
-  isReadOnly = false,
-  // TED-464 dropdown — rendered when `showViewSelector` is true.
-  showViewSelector = false,
-  showMyDealsOption = false,
-  cardView,
-  onCardViewChange,
-  moduleUsers,
-  currentUserId,
 }: {
   year: number;
   month: number;             // 1-indexed
@@ -2017,16 +1875,6 @@ function ClientRetentionTargetCard({
   onNext: () => void;
   onToday: () => void;
   onEdit: () => void;
-  // When true, hides the Edit control. Used for HOD oversight rendering where
-  // the card shows team-aggregated numbers and isn't editable.
-  isReadOnly?: boolean;
-  // TED-464: aggregator viewers (HOD/admin) get a My/Team/Individual switcher.
-  showViewSelector?: boolean;
-  showMyDealsOption?: boolean;        // admin only — HOD has no personal data
-  cardView?: string;
-  onCardViewChange?: (v: string) => void;
-  moduleUsers?: ModuleUser[];
-  currentUserId?: number;
 }) {
   const clientsTarget = target?.clients_assigned ?? null;
   const clientsMax = clientsTarget ? clientsTarget * TARGET_MULTIPLIER : 0;
@@ -2035,27 +1883,7 @@ function ClientRetentionTargetCard({
 
   return (
     <div className="border rounded-lg p-4 space-y-2 bg-white w-[362px] shrink-0 flex flex-col">
-      <div className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">Monthly Target</h2>
-        {showViewSelector && cardView && onCardViewChange && (
-          <Select value={cardView} onValueChange={onCardViewChange}>
-            <SelectTrigger className="w-[140px] shadow-none">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {showMyDealsOption && <SelectItem value="my">My Deals</SelectItem>}
-              <SelectItem value="team">Team Deals</SelectItem>
-              {(moduleUsers ?? [])
-                .filter((u) => u.id !== currentUserId)
-                .map((u) => (
-                  <SelectItem key={u.id} value={String(u.id)}>
-                    {u.full_name || u.email}
-                  </SelectItem>
-                ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
+      <h2 className="text-base font-semibold">Monthly Target</h2>
       <div className="space-y-1">
         <div>
           <div className="flex items-baseline justify-between">
@@ -2117,12 +1945,10 @@ function ClientRetentionTargetCard({
           <Calendar className="h-3 w-3 mr-1" />
           Today
         </Button>
-        {!isReadOnly && (
-          <Button variant="outline" size="sm" className="ml-auto" onClick={onEdit}>
-            <Pencil className="h-3 w-3 mr-1" />
-            Edit
-          </Button>
-        )}
+        <Button variant="outline" size="sm" className="ml-auto" onClick={onEdit}>
+          <Pencil className="h-3 w-3 mr-1" />
+          Edit
+        </Button>
       </div>
     </div>
   );

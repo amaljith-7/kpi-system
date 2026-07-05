@@ -185,11 +185,30 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
     totalLabel: 'Total Enquiries Added',
     showRatioCard: true,
   },
+  // TED-596: 'marine-new' has its own page (MarineNewEnquiryPage). This entry
+  // exists only to satisfy the Record key requirement after MotorEnquiryModule
+  // was widened; this page is never instantiated with apiSlug='marine-new'.
+  'marine-new': {
+    options: [
+      { value: 'new', label: 'New Enquiry' },
+      { value: 'in_progress', label: 'In Progress' },
+      { value: 'shared_with_client', label: 'Shared With Client' },
+      { value: 'converted', label: 'Won' },
+      { value: 'rejected', label: 'Rejected' },
+      { value: 'lost', label: 'Lost' },
+    ],
+    successValue: 'converted',
+    successLabel: 'Converted',
+    totalLabel: 'Total Enquiries',
+    showRatioCard: false,
+  },
 };
 
 const STATUS_COLORS: Record<MotorEnquiryEntry['status'], string> = {
   new: 'bg-blue-100 text-blue-800',
   in_progress: 'bg-amber-100 text-amber-800',
+  // TED-596: Marine New's 'shared_with_client' working stage — indigo.
+  shared_with_client: 'bg-indigo-100 text-indigo-800',
   converted: 'bg-green-100 text-green-800',
   retained: 'bg-green-100 text-green-800',
   lost: 'bg-red-100 text-red-800',

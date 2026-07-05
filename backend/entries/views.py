@@ -34,10 +34,12 @@ from .models import (
     TypeOfAccident,
     InsuranceCompany,
     ClassOfInsurance,
+    MarineClassOfInsurance,
     SalesKPIEntry,
     SalesKPIStatusTransition,
     SalesMonthlyTarget,
     MarineNewEntry,
+    MarineNewStatusTransition,
     MarineRenewalEntry,
     MedicalClaimEntry,
     MedicalClaimStatusTransition,
@@ -70,11 +72,14 @@ from .serializers import (
     TypeOfAccidentSerializer,
     InsuranceCompanySerializer,
     ClassOfInsuranceSerializer,
+    MarineClassOfInsuranceSerializer,
     SalesKPIEntrySerializer,
     SalesKPIConvertedPremiumSerializer,
     SalesKPIStatusUpdateSerializer,
     SalesMonthlyTargetSerializer,
     MarineNewEntrySerializer,
+    MarineNewStatusUpdateSerializer,
+    MarineNewRevisionsUpdateSerializer,
     MarineRenewalEntrySerializer,
     MedicalClaimEntrySerializer,
     MedicalClaimStatusUpdateSerializer,
@@ -757,6 +762,9 @@ def _build_enquiry_stats(queryset, success_status='converted'):
     # frontend subtracts it from the denominator) and out of the avg TAT/accuracy
     # `terminal` set below, so rejections don't skew quality metrics.
     rejected = queryset.filter(status='rejected').count()
+    # TED-596: Marine New adds a 'shared_with_client' working stage. Counted
+    # here for its dashboard card; 0 for every other enquiry module.
+    shared_with_client = queryset.filter(status='shared_with_client').count()
 
     terminal = queryset.filter(
         status__in=[success_status, 'lost']
@@ -826,6 +834,7 @@ def _build_enquiry_stats(queryset, success_status='converted'):
         'rejected_premium': round(rejected_premium, 2),
         'total_potential_premium': round(total_potential_premium, 2),
         'rejected': rejected,
+        'shared_with_client': shared_with_client,
         'voided': voided,
     }
 
@@ -1731,9 +1740,142 @@ class MotorFleetRenewalMonthlyTargetViewSet(HodAwareMonthlyTargetMixin, viewsets
 
 
 class MarineNewEntryViewSet(BaseEntryViewSet):
+    """Per-enquiry Marine New viewset (TED-596). Mirrors GeneralNewEntryViewSet;
+    reuses GeneralEnquiryFilter (its class_of_insurance filter matches on the FK
+    id regardless of the FK's target table)."""
     queryset = MarineNewEntry.objects.all()
     serializer_class = MarineNewEntrySerializer
     module_key = 'marine_new'
+    filterset_class = GeneralEnquiryFilter
+
+    def get_queryset(self):
+        return super().get_queryset().select_related('agent').prefetch_related('status_transitions')
+
+    def perform_create(self, serializer):
+        initial_remark = serializer.validated_data.pop('initial_remark', '').strip()
+        instance = serializer.save(
+            added_by=self.request.user,
+            status=MarineNewEntry.STATUS_NEW,
+            revisions=0,
+        )
+        MarineNewStatusTransition.objects.create(
+            entry=instance,
+            from_status='',
+            to_status=instance.status,
+            changed_by=self.request.user,
+        )
+        _seed_initial_remark(initial_remark, instance, self.request.user)
+
+    @action(detail=True, methods=['patch'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        entry = self.get_object()
+
+        if entry.is_terminal:
+            return Response(
+                {'error': 'Cannot change status of a closed enquiry.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MarineNewStatusUpdateSerializer(
+            data=request.data,
+            context={'entry': entry},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        old_status = entry.status
+        new_status = serializer.validated_data['status']
+        new_revisions = serializer.validated_data.get('revisions')
+        new_quotes_compared = serializer.validated_data.get('quotes_compared')
+        new_converted_premium = serializer.validated_data.get('converted_premium')
+
+        entry.status = new_status
+        update_fields = ['status', 'updated_at']
+
+        if new_revisions is not None:
+            entry.revisions = new_revisions
+            update_fields.append('revisions')
+
+        if new_quotes_compared is not None:
+            entry.quotes_compared = new_quotes_compared
+            update_fields.append('quotes_compared')
+
+        # TED-596: Marine's Won modal does not re-confirm the class of insurance,
+        # but accept it if the client sends one (parity with the other modules).
+        if 'class_of_insurance' in serializer.validated_data:
+            entry.class_of_insurance = serializer.validated_data['class_of_insurance']
+            update_fields.append('class_of_insurance')
+
+        # The Won modal records the single insurer the client purchased from.
+        if 'insurance_company' in serializer.validated_data:
+            entry.insurance_company = serializer.validated_data['insurance_company']
+            update_fields.append('insurance_company')
+
+        if new_converted_premium is not None:
+            entry.converted_premium = new_converted_premium
+            update_fields.append('converted_premium')
+
+        # A Rejected or Lost enquiry has no converted premium — record 0 so the
+        # column reads 0 instead of blank (neither close asks for it).
+        if new_status in (MarineNewEntry.STATUS_LOST, MarineNewEntry.STATUS_REJECTED):
+            entry.converted_premium = 0
+            if 'converted_premium' not in update_fields:
+                update_fields.append('converted_premium')
+
+        if new_status in MarineNewEntry.TERMINAL_STATUSES:
+            entry.status_changed_at = timezone.now()
+            update_fields.append('status_changed_at')
+
+        entry.save(update_fields=update_fields)
+
+        MarineNewStatusTransition.objects.create(
+            entry=entry,
+            from_status=old_status,
+            to_status=new_status,
+            changed_by=request.user,
+        )
+
+        return Response(
+            MarineNewEntrySerializer(entry, context={'request': request}).data
+        )
+
+    @action(detail=True, methods=['patch'], url_path='update-converted-premium')
+    def update_converted_premium(self, request, pk=None):
+        return _update_converted_premium(self, request)
+
+    @action(detail=True, methods=['patch'], url_path='update-revisions')
+    def update_revisions(self, request, pk=None):
+        entry = self.get_object()
+
+        if entry.status not in (
+            MarineNewEntry.STATUS_NEW,
+            MarineNewEntry.STATUS_IN_PROGRESS,
+            MarineNewEntry.STATUS_SHARED_WITH_CLIENT,
+        ):
+            return Response(
+                {'error': 'Revisions can only be edited while the enquiry is open.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = MarineNewRevisionsUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        entry.revisions = serializer.validated_data['revisions']
+        entry.save(update_fields=['revisions', 'updated_at'])
+
+        return Response(
+            MarineNewEntrySerializer(entry, context={'request': request}).data
+        )
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        queryset = self.get_queryset()
+        params = {
+            k: v for k, v in request.query_params.items()
+            if k in ('date_from', 'date_to', 'agent_id', 'status')
+        }
+        filterset = self.filterset_class(params, queryset=queryset)
+        queryset = filterset.qs
+        return Response(_build_enquiry_stats(queryset, success_status='converted'))
 
 
 class MarineRenewalEntryViewSet(BaseEntryViewSet):
@@ -1870,17 +2012,24 @@ class ClassOfInsuranceViewSet(_LookupViewSet):
     serializer_class = ClassOfInsuranceSerializer
 
 
+class MarineClassOfInsuranceViewSet(_LookupViewSet):
+    queryset = MarineClassOfInsurance.objects.all()
+    serializer_class = MarineClassOfInsuranceSerializer
+
+
 # ─── Cross-module per-entry comments ──────────────────────────────────────────
 
 # Lowercase model names of the entry types that support remarks. Matches
-# Django ContentType.model values. Marine / Medical Claim are intentionally
-# excluded — they don't currently expose a remarks workflow.
+# Django ContentType.model values. Medical Claim is intentionally excluded — it
+# doesn't currently expose a remarks workflow. Marine New joined the per-enquiry
+# pattern in TED-596 and now renders the panel.
 ALLOWED_REMARK_MODELS = {
     'generalnewentry', 'generalrenewalentry',
     'motornewentry', 'motorrenewalentry',
     'motorfleetnewentry', 'motorfleetrenewalentry',
     'motorclaimentry',
     'saleskpientry',
+    'marinenewentry',
 }
 
 
