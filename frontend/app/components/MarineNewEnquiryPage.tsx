@@ -185,12 +185,11 @@ const STATUS_CONFIG: Record<MotorEnquiryModule, ModuleStatusConfig> = {
     totalLabel: 'Total Enquiries Added',
     showRatioCard: true,
   },
-  // TED-596: the module this page actually renders. New / In Progress / Shared
-  // With Client are open working stages; Won / Rejected / Lost are terminal.
+  // TED-596 / TED-656: the module this page actually renders. New / Shared With
+  // Client are open working stages; Won / Rejected / Lost are terminal.
   'marine-new': {
     options: [
       { value: 'new', label: 'New Enquiry' },
-      { value: 'in_progress', label: 'In Progress' },
       { value: 'shared_with_client', label: 'Shared With Client' },
       { value: 'converted', label: 'Won' },
       { value: 'rejected', label: 'Rejected' },
@@ -732,8 +731,8 @@ export function MarineNewEnquiryPage() {
               } else if (v === 'rejected') {
                 // TED-595: irreversible decline — simple warning confirm.
                 handleReject(item);
-              } else if (v === 'new' || v === 'in_progress' || v === 'shared_with_client') {
-                // TED-596: New / In Progress / Shared With Client are open
+              } else if (v === 'new' || v === 'shared_with_client') {
+                // TED-596 / TED-656: New / Shared With Client are open
                 // stages — free, no-confirmation transitions.
                 applyStatusChange(item, v);
               }
@@ -799,8 +798,8 @@ export function MarineNewEnquiryPage() {
       header: 'Revisions',
       render: (item: MotorEnquiryEntry) => {
         // Read-only once closed (converted/lost); editable while the enquiry
-        // is still active (New or In Progress).
-        if (item.status !== 'new' && item.status !== 'in_progress') {
+        // is still active (New or Shared With Client).
+        if (item.status !== 'new' && item.status !== 'shared_with_client') {
           return <span className="text-sm text-[#374151]">{item.revisions}</span>;
         }
         // While status=new, anyone with table access can bump the counter inline.
@@ -983,7 +982,7 @@ export function MarineNewEnquiryPage() {
               />
             )}
             <StatCard label={config.totalLabel} value={stats.total} accent="text-[#09090B]" />
-            <StatCard label="In Progress" value={stats.in_progress} accent="text-amber-600" />
+            <StatCard label="Shared With Client" value={stats.shared_with_client ?? 0} accent="text-indigo-600" />
             <StatCard label="Enquiries Revised" value={stats.revised} accent="text-[#A855F7]" />
             <StatCard
               label={statusLabelFor(config.successValue)}
@@ -1228,14 +1227,14 @@ export function MarineNewEnquiryPage() {
                 onDelete={handleDelete}
                 canEdit={(entry) =>
                   !entry.is_voided &&
-                  (entry.status === 'new' || entry.status === 'in_progress') &&
+                  (entry.status === 'new' || entry.status === 'shared_with_client') &&
                   entry.is_editable &&
                   canModifyEntry(user, entry.added_by)
                 }
                 canDelete={(entry) =>
                   !entry.is_voided &&
                   entry.added_by === currentUserId &&
-                  (entry.status === 'new' || entry.status === 'in_progress')
+                  (entry.status === 'new' || entry.status === 'shared_with_client')
                 }
                 rowActions={(entry) => {
                   const actions: Array<{ label: string; onClick: () => void; danger?: boolean }> = [];
