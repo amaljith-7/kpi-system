@@ -1461,6 +1461,10 @@ class MarineNewEntry(BaseEntry):
     (3) the closing modal never re-confirms the class of insurance on a Won.
     """
     STATUS_NEW = 'new'
+    # TED-656: 'In Progress' was removed as a status — 'Shared With Client' is
+    # its replacement. The constant is retained ONLY to decode historical
+    # MarineNewStatusTransition rows and to drive the one-off remap data
+    # migration; it is no longer a selectable choice or a reachable transition.
     STATUS_IN_PROGRESS = 'in_progress'
     STATUS_SHARED_WITH_CLIENT = 'shared_with_client'
     STATUS_CONVERTED = 'converted'
@@ -1469,7 +1473,6 @@ class MarineNewEntry(BaseEntry):
 
     STATUS_CHOICES = [
         (STATUS_NEW, 'New Enquiry'),
-        (STATUS_IN_PROGRESS, 'In Progress'),
         (STATUS_SHARED_WITH_CLIENT, 'Shared With Client'),
         (STATUS_CONVERTED, 'Converted'),
         (STATUS_REJECTED, 'Rejected'),
@@ -1478,13 +1481,12 @@ class MarineNewEntry(BaseEntry):
 
     TERMINAL_STATUSES = {STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST}
 
-    # New / In Progress / Shared With Client are open working stages that move
-    # freely among each other; each can close to Converted (Won) / Rejected /
-    # Lost (all terminal dead-ends).
+    # TED-656: New / Shared With Client are the open working stages that move
+    # freely between each other; each can close to Converted (Won) / Rejected /
+    # Lost (all terminal dead-ends). 'In Progress' is no longer a stage.
     TRANSITIONS = {
-        STATUS_NEW: [STATUS_IN_PROGRESS, STATUS_SHARED_WITH_CLIENT, STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST],
-        STATUS_IN_PROGRESS: [STATUS_NEW, STATUS_SHARED_WITH_CLIENT, STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST],
-        STATUS_SHARED_WITH_CLIENT: [STATUS_NEW, STATUS_IN_PROGRESS, STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST],
+        STATUS_NEW: [STATUS_SHARED_WITH_CLIENT, STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST],
+        STATUS_SHARED_WITH_CLIENT: [STATUS_NEW, STATUS_CONVERTED, STATUS_REJECTED, STATUS_LOST],
         STATUS_CONVERTED: [],
         STATUS_REJECTED: [],
         STATUS_LOST: [],

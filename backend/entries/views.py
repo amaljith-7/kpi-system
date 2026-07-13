@@ -1860,7 +1860,6 @@ class MarineNewEntryViewSet(BaseEntryViewSet):
 
         if entry.status not in (
             MarineNewEntry.STATUS_NEW,
-            MarineNewEntry.STATUS_IN_PROGRESS,
             MarineNewEntry.STATUS_SHARED_WITH_CLIENT,
         ):
             return Response(
