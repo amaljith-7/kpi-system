@@ -73,6 +73,14 @@ export interface EnquiryStatusModalProps {
   insurer?: EnquiryStatusModalCoverage;
   /** TED-592: when true, the Confirm button is gated on an insurer selection. */
   insurerRequired?: boolean;
+  /** TED-595: dialog title (default "Confirm enquiry details"). */
+  title?: string;
+  /** TED-595: warning banner text (default "This action cannot be reversed."). */
+  warning?: string;
+  /** TED-595: confirm-button label (default "Confirm & Save"). */
+  confirmLabel?: string;
+  /** TED-595: render the confirm button as destructive (e.g. the Reject flow). */
+  danger?: boolean;
   onCancel: () => void;
   onConfirm: (payload: {
     revisions: number;
@@ -132,6 +140,10 @@ export function EnquiryStatusModal({
   coverage,
   insurer,
   insurerRequired,
+  title = 'Confirm enquiry details',
+  warning = 'This action cannot be reversed.',
+  confirmLabel = 'Confirm & Save',
+  danger = false,
   onCancel,
   onConfirm,
 }: EnquiryStatusModalProps) {
@@ -165,12 +177,12 @@ export function EnquiryStatusModal({
     <Dialog open onOpenChange={(open) => { if (!open) onCancel(); }}>
       <DialogContent className="p-0">
         <DialogHeader className="border-b border-[#E4E4E4] p-4">
-          <DialogTitle>Confirm enquiry details</DialogTitle>
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
 
         <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
           <div className="bg-[#F3F4F6] rounded-md px-4 py-2 text-center text-sm text-[#374151]">
-            This action cannot be reversed.
+            {warning}
           </div>
 
           {/* 1. Revision count */}
@@ -264,8 +276,13 @@ export function EnquiryStatusModal({
           <Button type="button" variant="outline" onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} disabled={!canSave}>
-            Confirm &amp; Save
+          <Button
+            type="button"
+            variant={danger ? 'destructive' : 'default'}
+            onClick={handleSave}
+            disabled={!canSave}
+          >
+            {confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

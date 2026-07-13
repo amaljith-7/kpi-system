@@ -333,6 +333,9 @@ export function MotorEnquiryPage({
     entry: MotorEnquiryEntry;
     newStatus: SuccessStatus | 'lost';
   } | null>(null);
+  // TED-595: the entry pending rejection — opens a field-capturing modal that
+  // requires the Revision Count + No. of Quotes Compared before the irreversible reject.
+  const [rejectingEntry, setRejectingEntry] = useState<MotorEnquiryEntry | null>(null);
 
   // Remarks side panel
   const [panelEntry, setPanelEntry] = useState<MotorEnquiryEntry | null>(null);
@@ -741,33 +744,24 @@ export function MotorEnquiryPage({
       ...(revisions != null ? { revisions } : {}),
       ...(quotesCompared != null ? { quotes_compared: quotesCompared } : {}),
       ...(coverage !== undefined ? { class_of_enquiry: coverage } : {}),
-      // TED-592: the insurer the client purchased from (Won modal, success only).
-      ...(wonInsurer ? { insurance_company: Number(wonInsurer) } : {}),
+      // TED-592 (corrected): the converted insurer (Won modal, success only).
+      ...(wonInsurer ? { converted_insurer: Number(wonInsurer) } : {}),
       ...(convertedPremium ? { converted_premium: convertedPremium } : {}),
     });
     if (result.data) {
       toast.success(`Marked as ${statusLabelFor(newStatus)}`);
       setPendingStatus(null);
+      setRejectingEntry(null);
       refreshAfterMutation();
     } else {
       toast.error(result.error || 'Failed to update status');
     }
   };
 
-  // TED-595: Rejected is an irreversible terminal close. Unlike Won/Lost it
-  // captures no extra fields, so it uses the simple confirm dialog (not the
-  // field-capturing EnquiryStatusModal) and posts only { status: 'rejected' }.
-  const handleReject = async (entry: MotorEnquiryEntry) => {
-    const ok = await confirm({
-      title: 'Reject this enquiry?',
-      description: 'This action cannot be reversed. Are you sure you want to proceed?',
-      confirmLabel: 'Reject',
-      cancelLabel: 'Cancel',
-      danger: true,
-    });
-    if (!ok) return;
-    applyStatusChange(entry, 'rejected');
-  };
+  // TED-595: Rejected is an irreversible terminal close. Per the requirement it
+  // must confirm the Revision Count + No. of Quotes Compared, so it opens the
+  // field-capturing EnquiryStatusModal in reject mode (not a plain confirm).
+  const handleReject = (entry: MotorEnquiryEntry) => setRejectingEntry(entry);
 
   // ── Columns ──────────────────────────────────────────────────────────────
   // Defined in their canonical order; the renewal modules that share this
@@ -854,15 +848,19 @@ export function MotorEnquiryPage({
     },
     { key: 'agent_name', header: 'Agent Name' },
     {
-      key: 'insurance_company',
-      header: 'Insurance Company',
-      // TED-592: show the purchased insurer once Won; before that, the insurers
-      // compared while the enquiry was open.
+      key: 'compared_insurance_companies',
+      header: 'Compared Insurers',
+      // TED-592 (corrected): the insurers compared/quoted while the enquiry was open.
       render: (item: MotorEnquiryEntry) =>
-        item.insurance_company_name ||
-        (item.compared_insurance_companies_names?.length
+        item.compared_insurance_companies_names?.length
           ? item.compared_insurance_companies_names.join(', ')
-          : '—'),
+          : '—',
+    },
+    {
+      key: 'converted_insurer',
+      header: 'Converted Insurer',
+      // TED-592 (corrected): the single insurer the client purchased from (Won).
+      render: (item: MotorEnquiryEntry) => item.converted_insurer_name || '—',
     },
     { key: 'chassis_no', header: 'Chassis No' },
     {
@@ -1408,25 +1406,44 @@ export function MotorEnquiryPage({
       </Dialog>
 
       {/* ── Status transition verification modal (TED-440) ───────────── */}
-      {/* TED-593: the Class of Enquiry confirmation was removed from the
-          Won/Lost modal for Motor New + Motor Renewal — the class chosen in the
-          add-enquiry modal is authoritative. `coverage` is omitted so the modal
-          no longer renders the dropdown, and `class_of_enquiry` is left out of
-          the status PATCH entirely (passing '' would wipe the stored value),
-          preserving whatever was set at creation. */}
+      {/* TED-593 (corrected): Motor New + Motor Renewal KEEP the Class of Enquiry
+          confirmation in the Won/Lost modal. The earlier removal (commit e0b43a3)
+          applied the ticket to the wrong modules; the correction moved the removal
+          to General New/Renewal instead. Motor Fleet still omits it (TED-568), so
+          `coverage` is gated on `!isFleet`. */}
       {pendingStatus && (
         <EnquiryStatusModal
           entry={pendingStatus.entry}
           needsConvertedPremium={pendingStatus.newStatus !== 'lost'}
+          coverage={isFleet ? undefined : {
+            label: 'Class of Enquiry',
+            helper: 'Confirm whether the finalized enquiry is Comprehensive or TPL.',
+            initialValue: pendingStatus.entry.class_of_enquiry ?? '',
+            renderControl: (value, onChange) => (
+              <Select
+                value={value || '__none__'}
+                onValueChange={(v) => onChange(v === '__none__' ? '' : v)}
+              >
+                <SelectTrigger className="w-full shadow-none">
+                  <SelectValue placeholder="Select class" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Select enquiry</SelectItem>
+                  <SelectItem value="comprehensive">Comprehensive</SelectItem>
+                  <SelectItem value="tpl">TPL</SelectItem>
+                </SelectContent>
+              </Select>
+            ),
+          }}
           insurer={
             pendingStatus.newStatus !== 'lost'
               ? {
-                  label: 'Insurance Company',
+                  label: 'Converted Insurer',
                   helper:
                     'Select the insurer the client purchased the policy from.',
                   initialValue:
-                    typeof pendingStatus.entry.insurance_company === 'number'
-                      ? String(pendingStatus.entry.insurance_company)
+                    typeof pendingStatus.entry.converted_insurer === 'number'
+                      ? String(pendingStatus.entry.converted_insurer)
                       : '',
                   renderControl: (value, onChange) => (
                     <SearchableSelect
@@ -1435,7 +1452,7 @@ export function MotorEnquiryPage({
                       placeholder="Select insurance company"
                       emptyLabel="No insurance companies found"
                       clearLabel="None"
-                      selectedLabel={pendingStatus.entry.insurance_company_name ?? null}
+                      selectedLabel={pendingStatus.entry.converted_insurer_name ?? null}
                       getOptionValue={(c) => String(c.id)}
                       getOptionLabel={(c) => c.name}
                       fetchPage={insurerFetchPage}
@@ -1446,15 +1463,37 @@ export function MotorEnquiryPage({
           }
           insurerRequired={pendingStatus.newStatus !== 'lost'}
           onCancel={() => setPendingStatus(null)}
-          onConfirm={({ revisions, quotes_compared, insurance_company, converted_premium }) =>
+          onConfirm={({ revisions, quotes_compared, coverage, insurance_company, converted_premium }) =>
             applyStatusChange(
               pendingStatus.entry,
               pendingStatus.newStatus,
               revisions,
               quotes_compared,
-              undefined,
+              isFleet ? undefined : coverage,
               converted_premium,
               insurance_company,
+            )
+          }
+        />
+      )}
+
+      {/* TED-595: reject-mode modal — confirms Revision Count + No. of Quotes
+          Compared (the only two required fields), then irreversibly rejects. */}
+      {rejectingEntry && (
+        <EnquiryStatusModal
+          entry={rejectingEntry}
+          needsConvertedPremium={false}
+          title="Reject this enquiry?"
+          warning="This action cannot be reversed. Are you sure you want to proceed?"
+          confirmLabel="Reject"
+          danger
+          onCancel={() => setRejectingEntry(null)}
+          onConfirm={({ revisions, quotes_compared }) =>
+            applyStatusChange(
+              rejectingEntry,
+              'rejected',
+              revisions,
+              quotes_compared,
             )
           }
         />
@@ -1934,7 +1973,7 @@ function EnquiryForm({
       </div>
 
       <div className="space-y-2">
-        <Label>Insurance Company *</Label>
+        <Label>Compared Insurers *</Label>
         <MultiSelect
           options={insurerOptions}
           value={insurerIds.map(String)}

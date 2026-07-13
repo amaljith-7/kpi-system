@@ -428,10 +428,14 @@ export interface MotorEnquiryEntry {
   // general_new uses class_of_insurance — FK to the admin-managed ClassOfInsurance lookup.
   class_of_insurance?: number | null;
   class_of_insurance_display?: string | null;
-  // Insurance Company FK to the admin-managed lookup table. TED-592: now holds
-  // the single insurer the client purchased from, captured on the Won modal.
+  // Insurance Company FK — legacy single insurer (create-time, pre-TED-592).
+  // TED-592 (corrected): no longer written by create or Won; kept for history.
   insurance_company?: number | null;
   insurance_company_name?: string | null;
+  // TED-592 (corrected): the single insurer the client purchased from, captured
+  // on the Won modal. Stored separately so insurance_company is never overwritten.
+  converted_insurer?: number | null;
+  converted_insurer_name?: string | null;
   // TED-592: insurers compared while the enquiry was open (create multi-select).
   compared_insurance_companies?: number[];
   compared_insurance_companies_names?: string[];
@@ -547,8 +551,8 @@ export async function updateMotorEnquiryStatus(
     quotes_compared?: number;
     class_of_enquiry?: string;
     class_of_insurance?: number | null;
-    // TED-592: the insurer the client purchased from, chosen on the Won modal.
-    insurance_company?: number | null;
+    // TED-592 (corrected): the insurer the client purchased from (Won modal).
+    converted_insurer?: number | null;
     converted_premium?: string | number;
   }
 ): Promise<ApiResponse<MotorEnquiryEntry>> {
@@ -672,9 +676,14 @@ export interface GeneralRenewalEntry {
   // FK to the admin-managed ClassOfInsurance lookup (TED-446 migration 0035).
   class_of_insurance?: number | null;
   class_of_insurance_display?: string | null;
-  // TED-592: the single insurer the client purchased from (set on the Won modal).
+  // Legacy single insurer (create-time, pre-TED-592). TED-592 (corrected): no
+  // longer written by create or Won; kept for history.
   insurance_company?: number | null;
   insurance_company_name?: string | null;
+  // TED-592 (corrected): the single insurer the client purchased from, captured
+  // on the Won modal. Stored separately so insurance_company is never overwritten.
+  converted_insurer?: number | null;
+  converted_insurer_name?: string | null;
   // TED-592: insurers compared while the enquiry was open (create multi-select).
   compared_insurance_companies?: number[];
   compared_insurance_companies_names?: string[];
@@ -751,8 +760,8 @@ export async function updateGeneralRenewalStatus(
     revisions?: number;
     quotes_compared?: number;
     class_of_insurance?: number | null;
-    // TED-592: the insurer the client purchased from, chosen on the Won modal.
-    insurance_company?: number | null;
+    // TED-592 (corrected): the insurer the client purchased from (Won modal).
+    converted_insurer?: number | null;
     converted_premium?: string | number;
   }
 ): Promise<ApiResponse<GeneralRenewalEntry>> {

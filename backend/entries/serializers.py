@@ -132,6 +132,10 @@ class GeneralNewEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -151,6 +155,7 @@ class GeneralNewEntrySerializer(BaseEntrySerializer):
             'potential_premium', 'converted_premium',
             'class_of_insurance', 'class_of_insurance_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -162,6 +167,7 @@ class GeneralNewEntrySerializer(BaseEntrySerializer):
             'tat_display', 'accuracy_pct',
             'allowed_transitions', 'is_terminal',
             'class_of_insurance_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'converted_premium',
             'added_at', 'updated_at',
@@ -191,10 +197,11 @@ class GeneralNewStatusUpdateSerializer(serializers.Serializer):
     class_of_insurance = serializers.PrimaryKeyRelatedField(
         queryset=ClassOfInsurance.objects.all(), required=False, allow_null=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -202,6 +209,18 @@ class GeneralNewStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == GeneralNewEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']
@@ -237,6 +256,10 @@ class GeneralRenewalEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -256,6 +279,7 @@ class GeneralRenewalEntrySerializer(BaseEntrySerializer):
             'potential_premium', 'converted_premium',
             'class_of_insurance', 'class_of_insurance_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -267,6 +291,7 @@ class GeneralRenewalEntrySerializer(BaseEntrySerializer):
             'tat_display', 'accuracy_pct',
             'allowed_transitions', 'is_terminal',
             'class_of_insurance_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'converted_premium',
             'added_at', 'updated_at',
@@ -296,10 +321,11 @@ class GeneralRenewalStatusUpdateSerializer(serializers.Serializer):
     class_of_insurance = serializers.PrimaryKeyRelatedField(
         queryset=ClassOfInsurance.objects.all(), required=False, allow_null=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -307,6 +333,18 @@ class GeneralRenewalStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == GeneralRenewalEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']
@@ -356,6 +394,10 @@ class MotorNewEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -375,6 +417,7 @@ class MotorNewEntrySerializer(BaseEntrySerializer):
             'potential_premium', 'converted_premium',
             'class_of_enquiry', 'class_of_enquiry_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -386,6 +429,7 @@ class MotorNewEntrySerializer(BaseEntrySerializer):
             'tat_display', 'accuracy_pct',
             'allowed_transitions', 'is_terminal',
             'class_of_enquiry_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'converted_premium',
             'added_at', 'updated_at',
@@ -415,10 +459,11 @@ class MotorNewStatusUpdateSerializer(serializers.Serializer):
     class_of_enquiry = serializers.ChoiceField(
         choices=MOTOR_CLASS_OF_ENQUIRY_CHOICES, required=False, allow_blank=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -426,6 +471,18 @@ class MotorNewStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == MotorNewEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']
@@ -459,6 +516,10 @@ class MotorRenewalEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -478,6 +539,7 @@ class MotorRenewalEntrySerializer(BaseEntrySerializer):
             'potential_premium', 'converted_premium',
             'class_of_enquiry', 'class_of_enquiry_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -489,6 +551,7 @@ class MotorRenewalEntrySerializer(BaseEntrySerializer):
             'tat_display', 'accuracy_pct',
             'allowed_transitions', 'is_terminal',
             'class_of_enquiry_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'converted_premium',
             'added_at', 'updated_at',
@@ -518,10 +581,11 @@ class MotorRenewalStatusUpdateSerializer(serializers.Serializer):
     class_of_enquiry = serializers.ChoiceField(
         choices=MOTOR_CLASS_OF_ENQUIRY_CHOICES, required=False, allow_blank=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -529,6 +593,18 @@ class MotorRenewalStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == MotorRenewalEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']
@@ -859,6 +935,10 @@ class MotorFleetNewEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -878,6 +958,7 @@ class MotorFleetNewEntrySerializer(BaseEntrySerializer):
             'potential_premium', 'converted_premium',
             'class_of_enquiry', 'class_of_enquiry_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -890,6 +971,7 @@ class MotorFleetNewEntrySerializer(BaseEntrySerializer):
             'allowed_transitions', 'is_terminal',
             'converted_premium',
             'class_of_enquiry_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'added_at', 'updated_at',
         ]
@@ -921,10 +1003,11 @@ class MotorFleetNewStatusUpdateSerializer(serializers.Serializer):
     class_of_enquiry = serializers.ChoiceField(
         choices=MOTOR_CLASS_OF_ENQUIRY_CHOICES, required=False, allow_blank=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -932,6 +1015,18 @@ class MotorFleetNewStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == MotorFleetNewEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']
@@ -965,6 +1060,10 @@ class MotorFleetRenewalEntrySerializer(BaseEntrySerializer):
     insurance_company_name = serializers.CharField(
         source='insurance_company.name', read_only=True, default=None,
     )
+    # TED-592 (corrected): the converted insurer chosen in the Won modal.
+    converted_insurer_name = serializers.CharField(
+        source='converted_insurer.name', read_only=True, default=None,
+    )
     # TED-592: names of the insurers compared while the enquiry was open.
     compared_insurance_companies_names = serializers.SlugRelatedField(
         source='compared_insurance_companies', slug_field='name',
@@ -984,6 +1083,7 @@ class MotorFleetRenewalEntrySerializer(BaseEntrySerializer):
             'converted_premium',
             'class_of_enquiry', 'class_of_enquiry_display',
             'insurance_company', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies', 'compared_insurance_companies_names',
             'added_by', 'added_by_name',
             'on_behalf_of', 'on_behalf_of_name',
@@ -996,6 +1096,7 @@ class MotorFleetRenewalEntrySerializer(BaseEntrySerializer):
             'allowed_transitions', 'is_terminal',
             'converted_premium',
             'class_of_enquiry_display', 'insurance_company_name',
+            'converted_insurer', 'converted_insurer_name',
             'compared_insurance_companies_names',
             'added_at', 'updated_at',
         ]
@@ -1027,10 +1128,11 @@ class MotorFleetRenewalStatusUpdateSerializer(serializers.Serializer):
     class_of_enquiry = serializers.ChoiceField(
         choices=MOTOR_CLASS_OF_ENQUIRY_CHOICES, required=False, allow_blank=True,
     )
-    # TED-592: the single insurer the client purchased from, chosen in the Won
-    # modal. Optional server-side (the frontend requires it on a Won); a Lost
-    # transition never sends it, so Lost is unaffected.
-    insurance_company = serializers.PrimaryKeyRelatedField(
+    # TED-592 (corrected): the single insurer the client purchased from, chosen
+    # in the Won modal, saved to `converted_insurer` (the legacy
+    # `insurance_company` is never overwritten). Optional server-side (frontend
+    # requires it on a Won); a Lost transition never sends it.
+    converted_insurer = serializers.PrimaryKeyRelatedField(
         queryset=InsuranceCompany.objects.all(), required=False, allow_null=True,
     )
     # TED-440/TED-530: converted premium is confirmed by the modal on every
@@ -1038,6 +1140,18 @@ class MotorFleetRenewalStatusUpdateSerializer(serializers.Serializer):
     converted_premium = serializers.DecimalField(
         max_digits=15, decimal_places=2, required=False, min_value=0,
     )
+
+    def validate(self, attrs):
+        # TED-595: rejecting an enquiry must confirm both counts.
+        if attrs.get('status') == MotorFleetRenewalEntry.STATUS_REJECTED:
+            missing = {
+                field: 'This field is required when rejecting an enquiry.'
+                for field in ('revisions', 'quotes_compared')
+                if attrs.get(field) is None
+            }
+            if missing:
+                raise serializers.ValidationError(missing)
+        return attrs
 
     def validate_status(self, value):
         entry = self.context['entry']

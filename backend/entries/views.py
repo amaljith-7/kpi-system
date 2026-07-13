@@ -525,11 +525,13 @@ class GeneralNewEntryViewSet(BaseEntryViewSet):
             entry.class_of_insurance = serializer.validated_data['class_of_insurance']
             update_fields.append('class_of_insurance')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -659,11 +661,13 @@ class GeneralRenewalEntryViewSet(BaseEntryViewSet):
             entry.class_of_insurance = serializer.validated_data['class_of_insurance']
             update_fields.append('class_of_insurance')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -902,11 +906,13 @@ class MotorNewEntryViewSet(BaseEntryViewSet):
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1038,11 +1044,13 @@ class MotorRenewalEntryViewSet(BaseEntryViewSet):
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1531,11 +1539,13 @@ class MotorFleetNewEntryViewSet(BaseEntryViewSet):
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.
@@ -1667,11 +1677,13 @@ class MotorFleetRenewalEntryViewSet(BaseEntryViewSet):
             entry.class_of_enquiry = serializer.validated_data['class_of_enquiry']
             update_fields.append('class_of_enquiry')
 
-        # TED-592: the Won modal records the single insurer the client
-        # purchased from. The Lost modal never sends it, so Lost is unaffected.
-        if 'insurance_company' in serializer.validated_data:
-            entry.insurance_company = serializer.validated_data['insurance_company']
-            update_fields.append('insurance_company')
+        # TED-592 (corrected): the Won modal records the single insurer the
+        # client purchased from, saved to `converted_insurer` (never overwriting
+        # the legacy `insurance_company`). Lost never sends it, so Lost is
+        # unaffected.
+        if 'converted_insurer' in serializer.validated_data:
+            entry.converted_insurer = serializer.validated_data['converted_insurer']
+            update_fields.append('converted_insurer')
 
         # TED-440/TED-530: persist the converted-premium captured by the
         # confirmation modal on every closing transition, including Lost.

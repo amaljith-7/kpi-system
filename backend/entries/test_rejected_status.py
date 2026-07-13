@@ -3,7 +3,8 @@
 Rejected is an additional terminal status on the six enquiry modules
 (general/motor/motor-fleet new & renewal). Once an entry is Rejected it is
 frozen: it cannot be edited, deleted, or have its status changed again. Void
-(the admin write-off) is deliberately still allowed.
+(the admin write-off) is deliberately still allowed. Rejecting also requires
+confirming the Revision Count and No. of Quotes Compared (TED-595 comment).
 
 MotorNewEntry represents the "new-type" machine (reachable from new/in_progress)
 and MotorRenewalEntry the "renewal-type" machine (reachable from new).
@@ -63,7 +64,9 @@ class RejectedStatusTests(TestCase):
         entry = self._motor_new()
         resp = self.client.patch(
             f'/api/entries/motor-new/{entry.id}/update-status/',
-            {'status': 'rejected'}, format='json',
+            # TED-595: rejecting must confirm both counts.
+            {'status': 'rejected', 'revisions': 2, 'quotes_compared': 3},
+            format='json',
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.data['status'], 'rejected')
@@ -72,6 +75,8 @@ class RejectedStatusTests(TestCase):
 
         entry.refresh_from_db()
         self.assertEqual(entry.status, 'rejected')
+        self.assertEqual(entry.revisions, 2)             # confirmed counts saved
+        self.assertEqual(entry.quotes_compared, 3)
         self.assertIsNotNone(entry.status_changed_at)   # terminal → stamped
         self.assertEqual(entry.converted_premium, 0)     # zeroed like Lost
         # An audit transition row was written.
@@ -83,11 +88,36 @@ class RejectedStatusTests(TestCase):
         entry = self._motor_renewal()
         resp = self.client.patch(
             f'/api/entries/motor-renewal/{entry.id}/update-status/',
-            {'status': 'rejected'}, format='json',
+            {'status': 'rejected', 'revisions': 1, 'quotes_compared': 1},
+            format='json',
         )
         self.assertEqual(resp.status_code, 200, resp.content)
         entry.refresh_from_db()
         self.assertEqual(entry.status, 'rejected')
+
+    # ── TED-595 comment: the two counts are required on reject ────────────
+    def test_reject_requires_both_counts(self):
+        entry = self._motor_new()
+        resp = self.client.patch(
+            f'/api/entries/motor-new/{entry.id}/update-status/',
+            {'status': 'rejected'}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn('revisions', resp.data)
+        self.assertIn('quotes_compared', resp.data)
+        entry.refresh_from_db()
+        self.assertEqual(entry.status, 'new')            # unchanged
+
+    def test_reject_with_only_one_count_is_rejected(self):
+        # Both are required — supplying only one still 400s.
+        entry = self._motor_new()
+        resp = self.client.patch(
+            f'/api/entries/motor-new/{entry.id}/update-status/',
+            {'status': 'rejected', 'revisions': 1}, format='json',
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn('quotes_compared', resp.data)
+        self.assertNotIn('revisions', resp.data)
 
     # ── frozen after rejection ───────────────────────────────────────────
     def test_rejected_entry_cannot_be_edited(self):
